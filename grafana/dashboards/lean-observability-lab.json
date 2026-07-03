@@ -1,0 +1,761 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Tempo",
+      "tooltip": "Open Tempo Explore",
+      "type": "link",
+      "url": "/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22tempo%22%7D"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Pyroscope",
+      "tooltip": "Open Pyroscope Explore",
+      "type": "link",
+      "url": "/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22pyroscope%22%7D"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT completed_at AS \"time\", critical_path_ms::double precision AS value FROM lean_backtest_runs WHERE status = 'ok' AND critical_path_ms IS NOT NULL ORDER BY completed_at DESC LIMIT 1;",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Latest Lean Critical Path ms",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT completed_at AS \"time\", critical_path_ms::double precision AS \"critical_path_ms\" FROM lean_backtest_runs WHERE status = 'ok' AND critical_path_ms IS NOT NULL ORDER BY completed_at;",
+          "refId": "A"
+        }
+      ],
+      "title": "Lean Critical Path Trend",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 3,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest AS (\n  SELECT run_id FROM lean_backtest_runs WHERE status = 'ok' ORDER BY completed_at DESC LIMIT 1\n)\nSELECT stage, duration_ms::double precision AS duration_ms\nFROM lean_backtest_stage_timings\nJOIN latest USING (run_id)\nORDER BY duration_ms DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Stage Contribution",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "percentile"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Open percentile",
+                    "url": "/d/lean-backtest-observability-lab/lean-backtest-observability-lab?orgId=1&var-percentile=${__data.fields.percentile}&from=now-6h&to=now"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH runs AS (\n  SELECT critical_path_ms::double precision AS latency_ms\n  FROM lean_backtest_runs\n  WHERE status = 'ok' AND critical_path_ms IS NOT NULL\n), stats AS (\n  SELECT COUNT(*) AS samples FROM runs\n)\nSELECT p.percentile, p.latency_ms::double precision AS latency_ms, stats.samples\nFROM stats,\nLATERAL (\n  SELECT 'p50' AS percentile, percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n  UNION ALL\n  SELECT 'p75' AS percentile, percentile_cont(0.75) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n  UNION ALL\n  SELECT 'p95' AS percentile, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n) p\nWHERE stats.samples > 0\nORDER BY CASE p.percentile WHEN 'p50' THEN 1 WHEN 'p75' THEN 2 ELSE 3 END;",
+          "refId": "A"
+        }
+      ],
+      "title": "Latency Percentiles",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "target_latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "md",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_percentile AS (\n  SELECT CASE '${percentile}' WHEN 'p75' THEN 0.75 WHEN 'p95' THEN 0.95 ELSE 0.50 END AS q\n), runs AS (\n  SELECT completed_at, run_id, symbol, data_source, trace_id, critical_path_ms::double precision AS critical_path_ms,\n         dominant_stage, reason_code, reason_summary\n  FROM lean_backtest_runs\n  WHERE status = 'ok' AND critical_path_ms IS NOT NULL\n), target AS (\n  SELECT percentile_cont((SELECT q FROM selected_percentile)) WITHIN GROUP (ORDER BY critical_path_ms) AS target_ms FROM runs\n), nearest AS (\n  SELECT r.*, ABS(r.critical_path_ms - t.target_ms) AS distance_ms, t.target_ms\n  FROM runs r CROSS JOIN target t\n  WHERE t.target_ms IS NOT NULL\n  ORDER BY ABS(r.critical_path_ms - t.target_ms), r.completed_at DESC\n  LIMIT 5\n), reason_rank AS (\n  SELECT COALESCE(reason_code, 'unknown') AS reason_code,\n         COALESCE(reason_summary, 'No reason summary recorded') AS reason_summary,\n         COUNT(*) AS reason_runs,\n         AVG(critical_path_ms) AS reason_avg_ms\n  FROM nearest\n  GROUP BY 1, 2\n  ORDER BY reason_runs DESC, reason_avg_ms DESC\n  LIMIT 1\n), aggregate AS (\n  SELECT COUNT(*) AS sample_runs, AVG(critical_path_ms) AS avg_latency_ms, MAX(critical_path_ms) AS max_latency_ms, MIN(target_ms) AS target_latency_ms FROM nearest\n)\nSELECT '${percentile}' AS percentile,\n       aggregate.sample_runs,\n       aggregate.target_latency_ms::double precision AS target_latency_ms,\n       aggregate.avg_latency_ms::double precision AS avg_latency_ms,\n       aggregate.max_latency_ms::double precision AS max_latency_ms,\n       reason_rank.reason_code,\n       reason_rank.reason_summary\nFROM aggregate\nLEFT JOIN reason_rank ON true;",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected Percentile Reason",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "lineWidth": 1
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 6,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_percentile AS (\n  SELECT CASE '${percentile}' WHEN 'p75' THEN 0.75 WHEN 'p95' THEN 0.95 ELSE 0.50 END AS q\n), runs AS (\n  SELECT run_id, completed_at, critical_path_ms::double precision AS critical_path_ms\n  FROM lean_backtest_runs\n  WHERE status = 'ok' AND critical_path_ms IS NOT NULL\n), target AS (\n  SELECT percentile_cont((SELECT q FROM selected_percentile)) WITHIN GROUP (ORDER BY critical_path_ms) AS target_ms FROM runs\n), nearest AS (\n  SELECT r.run_id\n  FROM runs r CROSS JOIN target t\n  WHERE t.target_ms IS NOT NULL\n  ORDER BY ABS(r.critical_path_ms - t.target_ms), r.completed_at DESC\n  LIMIT 5\n)\nSELECT t.stage, AVG(t.duration_ms)::double precision AS avg_duration_ms, MAX(t.duration_ms)::double precision AS max_duration_ms, COUNT(*) AS sample_runs\nFROM lean_backtest_stage_timings t\nJOIN nearest n USING (run_id)\nGROUP BY t.stage\nORDER BY avg_duration_ms DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected Percentile Stage Contribution",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical_path_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "Open Tempo trace",
+                    "url": "/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__value.raw}%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT completed_at, symbol, data_source, status, data_rows, critical_path_ms::double precision AS critical_path_ms,\n       dominant_stage, reason_code, reason_summary, trace_id\nFROM lean_backtest_runs\nORDER BY completed_at DESC\nLIMIT 20;",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Lean Backtest Runs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT completed_at, symbol, start_date, end_date, fast, slow, cash,\n       statistics ->> 'End Equity' AS end_equity,\n       statistics ->> 'Net Profit' AS net_profit,\n       statistics ->> 'Sharpe Ratio' AS sharpe_ratio,\n       statistics ->> 'Drawdown' AS drawdown,\n       statistics ->> 'Total Orders' AS total_orders\nFROM lean_backtest_runs\nWHERE status = 'ok'\nORDER BY completed_at DESC\nLIMIT 20;",
+          "refId": "A"
+        }
+      ],
+      "title": "LEAN Backtest Statistics",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": [
+    "lean",
+    "observability",
+    "critical-path",
+    "flame-graph"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "p50",
+          "value": "p50"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Percentile",
+        "multi": false,
+        "name": "percentile",
+        "options": [
+          {
+            "selected": true,
+            "text": "p50",
+            "value": "p50"
+          },
+          {
+            "selected": false,
+            "text": "p75",
+            "value": "p75"
+          },
+          {
+            "selected": false,
+            "text": "p95",
+            "value": "p95"
+          }
+        ],
+        "query": "p50,p75,p95",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Lean Backtest Observability Lab",
+  "uid": "lean-backtest-observability-lab",
+  "version": 1
+}

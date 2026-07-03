@@ -69,6 +69,8 @@ def main():
         f"- Price rows: `{report.get('price_rows')}`",
         f"- Indicator rows: `{report.get('indicator_rows')}`",
         f"- Measured critical path: `{critical_path_ms:.3f} ms`",
+        f"- Dominant stage: `{report.get('dominant_stage')}`",
+        f"- Reason: {report.get('reason_summary')}",
         "",
         "## Critical Path",
         "",

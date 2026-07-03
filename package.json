@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "test:browser": "node scripts/browser_smoke.mjs",
-    "test:observability": "node scripts/browser_observability_probe.mjs"
+    "test:observability": "node scripts/browser_observability_probe.mjs",
+    "test:control": "python3 scripts/control_smoke.py",
+    "test:lean-observability": "node scripts/browser_lean_observability_probe.mjs"
   },
   "devDependencies": {
     "playwright": "^1.53.0"

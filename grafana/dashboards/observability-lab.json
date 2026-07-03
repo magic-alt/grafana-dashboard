@@ -26,6 +26,18 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [],
+      "targetBlank": true,
+      "title": "Control Page",
+      "tooltip": "",
+      "type": "link",
+      "url": "http://localhost:18080"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
       "targetBlank": false,
       "title": "Stock Dashboard",
       "tooltip": "",
@@ -125,11 +137,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT completed_at AS \"time\", total_ms::double precision AS value FROM observability_runs WHERE status = 'ok' ORDER BY completed_at DESC LIMIT 1;",
+          "rawSql": "SELECT completed_at AS \"time\", COALESCE(critical_path_ms, total_ms)::double precision AS value FROM observability_runs WHERE status = 'ok' ORDER BY completed_at DESC LIMIT 1;",
           "refId": "A"
         }
       ],
-      "title": "Critical Path Total ms",
+      "title": "Latest Critical Path Total ms",
       "type": "stat"
     },
     {
@@ -177,11 +189,231 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest AS (SELECT * FROM observability_runs ORDER BY completed_at DESC LIMIT 1) SELECT stage, duration_ms::double precision AS duration_ms FROM latest, LATERAL (VALUES ('download_prices', download_ms), ('normalize_prices', normalize_ms), ('analysis', analysis_ms), ('store_prices', store_prices_ms), ('store_indicators', store_indicators_ms), ('grafana_query', grafana_query_ms), ('browser_render', browser_render_ms)) AS stages(stage, duration_ms) WHERE duration_ms IS NOT NULL ORDER BY duration_ms DESC;",
+          "rawSql": "WITH latest AS (\n  SELECT * FROM observability_runs WHERE status = 'ok' ORDER BY completed_at DESC LIMIT 1\n)\nSELECT stage, duration_ms::double precision AS duration_ms\nFROM latest,\nLATERAL (VALUES\n  ('download_prices', download_ms),\n  ('normalize_prices', normalize_ms),\n  ('analysis', analysis_ms),\n  ('store_prices', store_prices_ms),\n  ('store_indicators', store_indicators_ms),\n  ('grafana_query', grafana_query_ms),\n  ('browser_render', browser_render_ms)\n) AS stages(stage, duration_ms)\nWHERE duration_ms IS NOT NULL\nORDER BY duration_ms DESC;",
           "refId": "A"
         }
       ],
-      "title": "Stage Duration",
+      "title": "Latest Stage Duration",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "percentile"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Open percentile drilldown",
+                    "url": "/d/stock-observability-lab/stock-observability-lab?orgId=1&var-percentile=${__data.fields.percentile}&from=now-6h&to=now"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH runs AS (\n  SELECT COALESCE(critical_path_ms, total_ms)::double precision AS latency_ms\n  FROM observability_runs\n  WHERE status = 'ok'\n    AND COALESCE(critical_path_ms, total_ms) IS NOT NULL\n), stats AS (\n  SELECT COUNT(*) AS samples FROM runs\n)\nSELECT p.percentile, p.latency_ms::double precision AS latency_ms, stats.samples\nFROM stats,\nLATERAL (\n  SELECT 'p50' AS percentile, percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n  UNION ALL\n  SELECT 'p75' AS percentile, percentile_cont(0.75) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n  UNION ALL\n  SELECT 'p95' AS percentile, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS latency_ms FROM runs\n) p\nWHERE stats.samples > 0\nORDER BY CASE p.percentile WHEN 'p50' THEN 1 WHEN 'p75' THEN 2 ELSE 3 END;",
+          "refId": "A"
+        }
+      ],
+      "title": "Latency Percentiles",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_percentile AS (\n  SELECT CASE '${percentile}' WHEN 'p75' THEN 0.75 WHEN 'p95' THEN 0.95 ELSE 0.50 END AS q\n), runs AS (\n  SELECT\n    completed_at,\n    run_id,\n    trace_id,\n    COALESCE(critical_path_ms, total_ms)::double precision AS critical_path_ms,\n    download_ms::double precision AS download_ms,\n    normalize_ms::double precision AS normalize_ms,\n    analysis_ms::double precision AS analysis_ms,\n    store_prices_ms::double precision AS store_prices_ms,\n    store_indicators_ms::double precision AS store_indicators_ms,\n    grafana_query_ms::double precision AS grafana_query_ms,\n    browser_render_ms::double precision AS browser_render_ms,\n    dominant_stage,\n    reason_code,\n    reason_summary\n  FROM observability_runs\n  WHERE status = 'ok'\n    AND COALESCE(critical_path_ms, total_ms) IS NOT NULL\n), target AS (\n  SELECT percentile_cont((SELECT q FROM selected_percentile)) WITHIN GROUP (ORDER BY critical_path_ms) AS target_ms\n  FROM runs\n), nearest AS (\n  SELECT r.*, ABS(r.critical_path_ms - t.target_ms) AS distance_ms, t.target_ms\n  FROM runs r\n  CROSS JOIN target t\n  WHERE t.target_ms IS NOT NULL\n  ORDER BY ABS(r.critical_path_ms - t.target_ms), r.completed_at DESC\n  LIMIT 5\n)\n\n, reason_rank AS (\n  SELECT\n    COALESCE(reason_code, 'unknown') AS reason_code,\n    COALESCE(reason_summary, 'No reason summary recorded') AS reason_summary,\n    COUNT(*) AS reason_runs,\n    AVG(critical_path_ms) AS reason_avg_ms\n  FROM nearest\n  GROUP BY 1, 2\n  ORDER BY reason_runs DESC, reason_avg_ms DESC\n  LIMIT 1\n), aggregate AS (\n  SELECT COUNT(*) AS sample_runs, AVG(critical_path_ms) AS avg_latency_ms, MAX(critical_path_ms) AS max_latency_ms, MIN(target_ms) AS target_latency_ms\n  FROM nearest\n)\nSELECT\n  '${percentile}' AS percentile,\n  aggregate.sample_runs,\n  aggregate.target_latency_ms::double precision AS target_latency_ms,\n  aggregate.avg_latency_ms::double precision AS avg_latency_ms,\n  aggregate.max_latency_ms::double precision AS max_latency_ms,\n  reason_rank.reason_code,\n  reason_rank.reason_summary\nFROM aggregate\nLEFT JOIN reason_rank ON true;",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected Percentile Reason",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_percentile AS (\n  SELECT CASE '${percentile}' WHEN 'p75' THEN 0.75 WHEN 'p95' THEN 0.95 ELSE 0.50 END AS q\n), runs AS (\n  SELECT\n    completed_at,\n    run_id,\n    trace_id,\n    COALESCE(critical_path_ms, total_ms)::double precision AS critical_path_ms,\n    download_ms::double precision AS download_ms,\n    normalize_ms::double precision AS normalize_ms,\n    analysis_ms::double precision AS analysis_ms,\n    store_prices_ms::double precision AS store_prices_ms,\n    store_indicators_ms::double precision AS store_indicators_ms,\n    grafana_query_ms::double precision AS grafana_query_ms,\n    browser_render_ms::double precision AS browser_render_ms,\n    dominant_stage,\n    reason_code,\n    reason_summary\n  FROM observability_runs\n  WHERE status = 'ok'\n    AND COALESCE(critical_path_ms, total_ms) IS NOT NULL\n), target AS (\n  SELECT percentile_cont((SELECT q FROM selected_percentile)) WITHIN GROUP (ORDER BY critical_path_ms) AS target_ms\n  FROM runs\n), nearest AS (\n  SELECT r.*, ABS(r.critical_path_ms - t.target_ms) AS distance_ms, t.target_ms\n  FROM runs r\n  CROSS JOIN target t\n  WHERE t.target_ms IS NOT NULL\n  ORDER BY ABS(r.critical_path_ms - t.target_ms), r.completed_at DESC\n  LIMIT 5\n)\n\nSELECT\n  stages.stage,\n  AVG(stages.duration_ms)::double precision AS avg_duration_ms,\n  MAX(stages.duration_ms)::double precision AS max_duration_ms,\n  COUNT(*) AS sample_runs\nFROM nearest,\nLATERAL (VALUES\n  ('download_prices', download_ms),\n  ('normalize_prices', normalize_ms),\n  ('analysis', analysis_ms),\n  ('store_prices', store_prices_ms),\n  ('store_indicators', store_indicators_ms),\n  ('grafana_query', grafana_query_ms),\n  ('browser_render', browser_render_ms)\n) AS stages(stage, duration_ms)\nWHERE stages.duration_ms IS NOT NULL\nGROUP BY stages.stage\nORDER BY avg_duration_ms DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected Percentile Stage Contribution",
       "type": "table"
     },
     {
@@ -242,10 +474,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
+        "h": 8,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 12
       },
       "id": 3,
       "options": {
@@ -315,7 +547,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 20
       },
       "id": 4,
       "options": {
@@ -382,7 +614,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 20
       },
       "id": 5,
       "options": {
@@ -407,11 +639,115 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT completed_at, mode, status, price_rows, indicator_rows, total_ms::double precision AS total_ms, analysis_ms::double precision AS analysis_ms, grafana_query_ms::double precision AS grafana_query_ms, browser_render_ms::double precision AS browser_render_ms, trace_id FROM observability_runs ORDER BY completed_at DESC LIMIT 20;",
+          "rawSql": "SELECT\n  completed_at,\n  mode,\n  status,\n  price_rows,\n  indicator_rows,\n  COALESCE(critical_path_ms, total_ms)::double precision AS critical_path_ms,\n  pipeline_total_ms::double precision AS pipeline_total_ms,\n  dominant_stage,\n  reason_code,\n  reason_summary,\n  trace_id\nFROM observability_runs\nORDER BY completed_at DESC\nLIMIT 20;",
           "refId": "A"
         }
       ],
       "title": "Critical Path Runs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "stock-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tempo_trace"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Open Tempo trace",
+                    "url": "${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pyroscope"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Open Pyroscope",
+                    "url": "${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "stock-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_percentile AS (\n  SELECT CASE '${percentile}' WHEN 'p75' THEN 0.75 WHEN 'p95' THEN 0.95 ELSE 0.50 END AS q\n), runs AS (\n  SELECT\n    completed_at,\n    run_id,\n    trace_id,\n    COALESCE(critical_path_ms, total_ms)::double precision AS critical_path_ms,\n    download_ms::double precision AS download_ms,\n    normalize_ms::double precision AS normalize_ms,\n    analysis_ms::double precision AS analysis_ms,\n    store_prices_ms::double precision AS store_prices_ms,\n    store_indicators_ms::double precision AS store_indicators_ms,\n    grafana_query_ms::double precision AS grafana_query_ms,\n    browser_render_ms::double precision AS browser_render_ms,\n    dominant_stage,\n    reason_code,\n    reason_summary\n  FROM observability_runs\n  WHERE status = 'ok'\n    AND COALESCE(critical_path_ms, total_ms) IS NOT NULL\n), target AS (\n  SELECT percentile_cont((SELECT q FROM selected_percentile)) WITHIN GROUP (ORDER BY critical_path_ms) AS target_ms\n  FROM runs\n), nearest AS (\n  SELECT r.*, ABS(r.critical_path_ms - t.target_ms) AS distance_ms, t.target_ms\n  FROM runs r\n  CROSS JOIN target t\n  WHERE t.target_ms IS NOT NULL\n  ORDER BY ABS(r.critical_path_ms - t.target_ms), r.completed_at DESC\n  LIMIT 5\n)\n\nSELECT\n  completed_at,\n  run_id::text AS run_id,\n  trace_id,\n  critical_path_ms::double precision AS critical_path_ms,\n  distance_ms::double precision AS distance_from_percentile_ms,\n  dominant_stage,\n  reason_summary,\n  '/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22' || trace_id || '%22%7D%5D%7D' AS tempo_trace,\n  '/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22pyroscope%22%7D' AS pyroscope\nFROM nearest\nORDER BY distance_ms, completed_at DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected Percentile Run Drilldown",
       "type": "table"
     }
   ],
@@ -424,7 +760,40 @@
     "flame-graph"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "p50",
+          "value": "p50"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Percentile",
+        "multi": false,
+        "name": "percentile",
+        "options": [
+          {
+            "selected": true,
+            "text": "p50",
+            "value": "p50"
+          },
+          {
+            "selected": false,
+            "text": "p75",
+            "value": "p75"
+          },
+          {
+            "selected": false,
+            "text": "p95",
+            "value": "p95"
+          }
+        ],
+        "query": "p50,p75,p95",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
   },
   "time": {
     "from": "now-1y",
@@ -434,6 +803,6 @@
   "timezone": "browser",
   "title": "Stock Observability Lab",
   "uid": "stock-observability-lab",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

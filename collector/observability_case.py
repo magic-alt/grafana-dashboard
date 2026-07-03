@@ -15,6 +15,7 @@ import requests
 from psycopg.types.json import Jsonb
 
 from fetch_prices import DB, TICKERS, ensure_schema, run_once, wait_for_db
+from latency_reason import explain_latency
 from observability_support import (
     configure_observability,
     flush_traces,
@@ -122,11 +123,13 @@ def record_observability_run(report, started_at, completed_at):
 INSERT INTO observability_runs (
     run_id, started_at, completed_at, mode, symbols, price_rows, indicator_rows,
     download_ms, normalize_ms, analysis_ms, store_prices_ms, store_indicators_ms,
-    grafana_query_ms, browser_render_ms, total_ms, trace_id, status, details
+    grafana_query_ms, browser_render_ms, pipeline_total_ms, critical_path_ms, total_ms,
+    dominant_stage, reason_code, reason_summary, trace_id, status, details
 ) VALUES (
     %(run_id)s, %(started_at)s, %(completed_at)s, %(mode)s, %(symbols)s, %(price_rows)s, %(indicator_rows)s,
     %(download_ms)s, %(normalize_ms)s, %(analysis_ms)s, %(store_prices_ms)s, %(store_indicators_ms)s,
-    %(grafana_query_ms)s, %(browser_render_ms)s, %(total_ms)s, %(trace_id)s, %(status)s, %(details)s
+    %(grafana_query_ms)s, %(browser_render_ms)s, %(pipeline_total_ms)s, %(critical_path_ms)s, %(total_ms)s,
+    %(dominant_stage)s, %(reason_code)s, %(reason_summary)s, %(trace_id)s, %(status)s, %(details)s
 )
 ON CONFLICT (run_id) DO UPDATE SET
     completed_at = EXCLUDED.completed_at,
@@ -139,7 +142,12 @@ ON CONFLICT (run_id) DO UPDATE SET
     store_indicators_ms = EXCLUDED.store_indicators_ms,
     grafana_query_ms = EXCLUDED.grafana_query_ms,
     browser_render_ms = EXCLUDED.browser_render_ms,
+    pipeline_total_ms = EXCLUDED.pipeline_total_ms,
+    critical_path_ms = EXCLUDED.critical_path_ms,
     total_ms = EXCLUDED.total_ms,
+    dominant_stage = EXCLUDED.dominant_stage,
+    reason_code = EXCLUDED.reason_code,
+    reason_summary = EXCLUDED.reason_summary,
     trace_id = EXCLUDED.trace_id,
     status = EXCLUDED.status,
     details = EXCLUDED.details;
@@ -159,7 +167,12 @@ ON CONFLICT (run_id) DO UPDATE SET
         "store_indicators_ms": timings.get("store_indicators"),
         "grafana_query_ms": timings.get("grafana_query"),
         "browser_render_ms": timings.get("browser_render"),
+        "pipeline_total_ms": report.get("pipeline_total_ms"),
+        "critical_path_ms": report.get("critical_path_ms"),
         "total_ms": report.get("total_ms"),
+        "dominant_stage": report.get("dominant_stage"),
+        "reason_code": report.get("reason_code"),
+        "reason_summary": report.get("reason_summary"),
         "trace_id": report.get("trace_id"),
         "status": report["status"],
         "details": Jsonb(report),
@@ -209,10 +222,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
-    configure_observability(os.getenv("OTEL_SERVICE_NAME", "stock-observability-case"))
-
+def run_case(mode="live", analysis_load_factor=12, run_browser=False, report_path=REPORT_PATH):
     grafana_url = os.getenv("GRAFANA_URL", "http://localhost:3000")
     public_grafana_url = os.getenv("PUBLIC_GRAFANA_URL", grafana_url)
     run_id = str(uuid.uuid4())
@@ -227,24 +237,25 @@ def main():
         "stock.observability_case",
         {
             "test.run_id": run_id,
-            "test.mode": args.mode,
+            "test.mode": mode,
             "stock.symbols": ",".join(TICKERS),
-            "analysis.load_factor": args.analysis_load_factor,
+            "analysis.load_factor": analysis_load_factor,
         },
     ) as root_span:
         trace_id = trace_id_from_span(root_span)
-        pipeline = run_once(load_factor=args.analysis_load_factor, include_analysis=True)
+        pipeline = run_once(load_factor=analysis_load_factor, include_analysis=True)
 
         started = time.perf_counter()
         grafana_result = query_grafana_display_data(grafana_url)
         pipeline["stage_timings_ms"]["grafana_query"] = elapsed_ms(started)
 
-        browser_probe = maybe_run_browser_probe(args.run_browser)
+        browser_probe = maybe_run_browser_probe(run_browser)
         completed_at = datetime.now(timezone.utc)
+        latency = explain_latency(pipeline["stage_timings_ms"])
 
         report = {
             "run_id": run_id,
-            "mode": args.mode,
+            "mode": mode,
             "status": "ok",
             "started_at": started_at.isoformat(),
             "completed_at": completed_at.isoformat(),
@@ -259,7 +270,17 @@ def main():
             "analysis": pipeline.get("analysis", {}),
             "grafana": grafana_result,
             "browser_probe": browser_probe,
-            "total_ms": elapsed_ms(run_started),
+            "run_wall_ms": elapsed_ms(run_started),
+            "pipeline_total_ms": latency["pipeline_total_ms"],
+            "critical_path_ms": latency["critical_path_ms"],
+            "total_ms": latency["critical_path_ms"],
+            "dominant_stage": latency["dominant_stage"],
+            "dominant_stage_ms": latency["dominant_stage_ms"],
+            "dominant_stage_share": latency["dominant_stage_share"],
+            "reason_code": latency["reason_code"],
+            "reason_summary": latency["reason_summary"],
+            "latency_explanation": latency,
+            "pyroscope_service_name": os.getenv("PYROSCOPE_APPLICATION_NAME", "stock.observability.case"),
             "links": build_links(public_grafana_url, trace_id),
         }
         set_span_attributes(
@@ -270,16 +291,31 @@ def main():
                 "stock.indicator_rows": pipeline["indicator_rows"],
                 "stock.grafana_summary_rows": grafana_result["summary_rows"],
                 "stock.grafana_indicator_rows": grafana_result["indicator_rows"],
+                "stock.critical_path_ms": latency["critical_path_ms"],
+                "stock.dominant_stage": latency["dominant_stage"],
+                "stock.reason_code": latency["reason_code"],
             },
         )
 
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     record_observability_run(report, started_at, completed_at)
     flush_traces()
     time.sleep(2)
+    return report
 
-    print(f"ok - observability case run_id={run_id}")
+
+def main():
+    args = parse_args()
+    configure_observability(os.getenv("OTEL_SERVICE_NAME", "stock-observability-case"))
+    report = run_case(
+        mode=args.mode,
+        analysis_load_factor=args.analysis_load_factor,
+        run_browser=args.run_browser,
+        report_path=REPORT_PATH,
+    )
+
+    print(f"ok - observability case run_id={report.get('run_id')}")
     print(f"ok - trace_id={report.get('trace_id')}")
     print(f"ok - report={REPORT_PATH}")
     print(f"ok - observability dashboard={report['links']['observability_dashboard']}")

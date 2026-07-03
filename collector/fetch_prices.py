@@ -88,13 +88,95 @@ SCHEMA_SQL = [
         store_indicators_ms NUMERIC,
         grafana_query_ms NUMERIC,
         browser_render_ms NUMERIC,
+        pipeline_total_ms NUMERIC,
+        critical_path_ms NUMERIC,
         total_ms NUMERIC,
+        dominant_stage TEXT,
+        reason_code TEXT,
+        reason_summary TEXT,
         trace_id TEXT,
         status TEXT NOT NULL,
         details JSONB NOT NULL DEFAULT '{}'::jsonb
     )
     """,
+    "ALTER TABLE observability_runs ADD COLUMN IF NOT EXISTS pipeline_total_ms NUMERIC",
+    "ALTER TABLE observability_runs ADD COLUMN IF NOT EXISTS critical_path_ms NUMERIC",
+    "ALTER TABLE observability_runs ADD COLUMN IF NOT EXISTS dominant_stage TEXT",
+    "ALTER TABLE observability_runs ADD COLUMN IF NOT EXISTS reason_code TEXT",
+    "ALTER TABLE observability_runs ADD COLUMN IF NOT EXISTS reason_summary TEXT",
     "CREATE INDEX IF NOT EXISTS idx_observability_runs_completed_at ON observability_runs (completed_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_observability_runs_critical_path ON observability_runs (critical_path_ms)",
+    """
+    WITH stage_values AS (
+        SELECT
+            run_id,
+            COALESCE(download_ms, 0) AS download_ms,
+            COALESCE(normalize_ms, 0) AS normalize_ms,
+            COALESCE(analysis_ms, 0) AS analysis_ms,
+            COALESCE(store_prices_ms, 0) AS store_prices_ms,
+            COALESCE(store_indicators_ms, 0) AS store_indicators_ms,
+            COALESCE(grafana_query_ms, 0) AS grafana_query_ms,
+            COALESCE(browser_render_ms, 0) AS browser_render_ms
+        FROM observability_runs
+        WHERE status = 'ok'
+    ), totals AS (
+        SELECT
+            run_id,
+            download_ms + normalize_ms + analysis_ms + store_prices_ms + store_indicators_ms + grafana_query_ms AS pipeline_total_ms,
+            download_ms + normalize_ms + analysis_ms + store_prices_ms + store_indicators_ms + grafana_query_ms + browser_render_ms AS stage_total_ms,
+            GREATEST(download_ms, normalize_ms, analysis_ms, store_prices_ms, store_indicators_ms, grafana_query_ms, browser_render_ms) AS dominant_stage_ms,
+            CASE GREATEST(download_ms, normalize_ms, analysis_ms, store_prices_ms, store_indicators_ms, grafana_query_ms, browser_render_ms)
+                WHEN download_ms THEN 'download_prices'
+                WHEN normalize_ms THEN 'normalize_prices'
+                WHEN analysis_ms THEN 'analysis'
+                WHEN store_prices_ms THEN 'store_prices'
+                WHEN store_indicators_ms THEN 'store_indicators'
+                WHEN grafana_query_ms THEN 'grafana_query'
+                ELSE 'browser_render'
+            END AS dominant_stage
+        FROM stage_values
+    ), explained AS (
+        SELECT
+            run_id,
+            pipeline_total_ms,
+            stage_total_ms,
+            dominant_stage,
+            CASE
+                WHEN stage_total_ms > 0 AND dominant_stage_ms / stage_total_ms < 0.4 THEN 'mixed_path_latency'
+                WHEN dominant_stage = 'download_prices' THEN 'market_data_source_latency'
+                WHEN dominant_stage = 'normalize_prices' THEN 'symbol_normalization_latency'
+                WHEN dominant_stage = 'analysis' THEN 'analysis_cpu_latency'
+                WHEN dominant_stage = 'store_prices' THEN 'price_storage_latency'
+                WHEN dominant_stage = 'store_indicators' THEN 'indicator_storage_latency'
+                WHEN dominant_stage = 'grafana_query' THEN 'grafana_datasource_latency'
+                WHEN dominant_stage = 'browser_render' THEN 'grafana_browser_render_latency'
+                ELSE 'unknown_latency'
+            END AS reason_code,
+            CASE
+                WHEN stage_total_ms > 0 AND dominant_stage_ms / stage_total_ms < 0.4 THEN '延迟不是由单一阶段主导，由多个阶段共同造成。'
+                WHEN dominant_stage = 'download_prices' THEN '真实 Yahoo Finance 行情下载阶段占比最高，主要受行情源响应和网络耗时影响。'
+                WHEN dominant_stage = 'normalize_prices' THEN '按股票代码拆分和标准化行情数据阶段占比最高，通常和 symbol 数量及返回数据形状有关。'
+                WHEN dominant_stage = 'analysis' THEN '技术指标分析阶段占比最高，主要来自 MA、波动率、回撤和可见 CPU 负载计算。'
+                WHEN dominant_stage = 'store_prices' THEN '价格数据写入 Postgres 阶段占比最高，通常和 upsert 行数、索引维护和数据库 I/O 有关。'
+                WHEN dominant_stage = 'store_indicators' THEN '指标数据写入 Postgres 阶段占比最高，通常和指标行数、索引维护和数据库 I/O 有关。'
+                WHEN dominant_stage = 'grafana_query' THEN 'Grafana datasource 查询阶段占比最高，说明展示层 SQL 查询或 datasource 往返耗时是主因。'
+                WHEN dominant_stage = 'browser_render' THEN 'Grafana 浏览器渲染阶段占比最高，说明前端加载、面板查询和页面绘制是主因。'
+                ELSE '没有可用于解释的阶段耗时数据。'
+            END AS reason_summary
+        FROM totals
+    )
+    UPDATE observability_runs runs
+    SET
+        pipeline_total_ms = COALESCE(runs.pipeline_total_ms, explained.pipeline_total_ms),
+        critical_path_ms = COALESCE(runs.critical_path_ms, NULLIF(explained.stage_total_ms, 0), runs.total_ms),
+        total_ms = COALESCE(runs.critical_path_ms, NULLIF(explained.stage_total_ms, 0), runs.total_ms),
+        dominant_stage = COALESCE(runs.dominant_stage, explained.dominant_stage),
+        reason_code = COALESCE(runs.reason_code, explained.reason_code),
+        reason_summary = COALESCE(runs.reason_summary, explained.reason_summary)
+    FROM explained
+    WHERE runs.run_id = explained.run_id
+      AND runs.status = 'ok'
+    """,
     """
     CREATE OR REPLACE VIEW stock_daily_returns AS
     SELECT

@@ -1,0 +1,49 @@
+discovery.docker "local_containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "lean_containers" {
+  targets = discovery.docker.local_containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_lean_observability"]
+    regex         = "true"
+    action        = "keep"
+  }
+
+  rule {
+    target_label = "service_name"
+    replacement  = "lean.engine"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_lean_run_id"]
+    target_label  = "run_id"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_lean_symbol"]
+    target_label  = "symbol"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+  }
+}
+
+pyroscope.ebpf "lean_engine" {
+  targets    = discovery.relabel.lean_containers.output
+  forward_to = [pyroscope.write.local.receiver]
+}
+
+pyroscope.write "local" {
+  endpoint {
+    url = "http://pyroscope:4040"
+  }
+
+  external_labels = {
+    env       = "local",
+    component = "lean-engine",
+  }
+}

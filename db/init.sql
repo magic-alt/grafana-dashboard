@@ -45,13 +45,66 @@ CREATE TABLE IF NOT EXISTS observability_runs (
     store_indicators_ms NUMERIC,
     grafana_query_ms NUMERIC,
     browser_render_ms NUMERIC,
+    pipeline_total_ms NUMERIC,
+    critical_path_ms NUMERIC,
     total_ms NUMERIC,
+    dominant_stage TEXT,
+    reason_code TEXT,
+    reason_summary TEXT,
     trace_id TEXT,
     status TEXT NOT NULL,
     details JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS idx_observability_runs_completed_at ON observability_runs (completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_observability_runs_critical_path ON observability_runs (critical_path_ms);
+
+CREATE TABLE IF NOT EXISTS lean_backtest_runs (
+    run_id UUID PRIMARY KEY,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    fast INTEGER NOT NULL,
+    slow INTEGER NOT NULL,
+    cash NUMERIC NOT NULL,
+    data_source TEXT NOT NULL,
+    data_rows INTEGER,
+    data_first_date DATE,
+    data_last_date DATE,
+    overwrite_data BOOLEAN NOT NULL DEFAULT false,
+    docker_image TEXT NOT NULL,
+    lean_container_name TEXT,
+    result_json_path TEXT,
+    summary_json_path TEXT,
+    report_html_path TEXT,
+    statistics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    trace_id TEXT,
+    profile_query TEXT,
+    engine_profile_query TEXT,
+    critical_path_ms NUMERIC,
+    pipeline_total_ms NUMERIC,
+    total_ms NUMERIC,
+    dominant_stage TEXT,
+    reason_code TEXT,
+    reason_summary TEXT,
+    error TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS lean_backtest_stage_timings (
+    run_id UUID NOT NULL REFERENCES lean_backtest_runs(run_id) ON DELETE CASCADE,
+    stage TEXT NOT NULL,
+    duration_ms NUMERIC NOT NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (run_id, stage)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lean_backtest_runs_completed_at ON lean_backtest_runs (completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lean_backtest_runs_critical_path ON lean_backtest_runs (critical_path_ms);
+CREATE INDEX IF NOT EXISTS idx_lean_backtest_runs_symbol ON lean_backtest_runs (symbol, completed_at DESC);
 
 CREATE OR REPLACE VIEW stock_daily_returns AS
 SELECT

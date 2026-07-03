@@ -69,27 +69,36 @@ def check_tempo(report):
     print(f"ok - Tempo returned trace {trace_id} with required stock pipeline spans")
 
 
-def check_pyroscope():
+def check_pyroscope(report):
     request_text(f"{PYROSCOPE_URL}/ready")
-    query = 'process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="stock.observability.case"}'
-    encoded_query = urllib.parse.quote(query, safe="")
-    profile = request_json(
-        f"{PYROSCOPE_URL}/pyroscope/render?query={encoded_query}&from=now-30m&until=now&format=json"
-    )
-    flamebearer = profile.get("flamebearer") or {}
-    names = flamebearer.get("names") or []
-    levels = flamebearer.get("levels") or []
-    if not names or not levels:
-        raise AssertionError("Pyroscope returned an empty flame graph")
     required_names = [
         "/app/fetch_prices.py run_once",
         "/app/analysis.py analyze_records",
         "/app/analysis.py _visible_cpu_analysis",
     ]
-    missing = [name for name in required_names if name not in names]
-    if missing:
-        raise AssertionError(f"Pyroscope flame graph is missing functions: {', '.join(missing)}")
-    print(f"ok - Pyroscope flame graph has {len(names)} functions and {len(levels)} levels")
+    candidates = [
+        report.get("pyroscope_service_name"),
+        "stock.observability.case",
+        "stock.observability.control",
+        "stock.collector",
+    ]
+    checked = []
+    for service_name in [item for item in candidates if item]:
+        if service_name in checked:
+            continue
+        checked.append(service_name)
+        query = f'process_cpu:cpu:nanoseconds:cpu:nanoseconds{{service_name="{service_name}"}}'
+        encoded_query = urllib.parse.quote(query, safe="")
+        profile = request_json(
+            f"{PYROSCOPE_URL}/pyroscope/render?query={encoded_query}&from=now-30m&until=now&format=json"
+        )
+        flamebearer = profile.get("flamebearer") or {}
+        names = flamebearer.get("names") or []
+        levels = flamebearer.get("levels") or []
+        if names and levels and all(name in names for name in required_names):
+            print(f"ok - Pyroscope flame graph for {service_name} has {len(names)} functions and {len(levels)} levels")
+            return
+    raise AssertionError(f"Pyroscope flame graph is missing required stock functions for services: {', '.join(checked)}")
 
 
 def main():
@@ -97,7 +106,7 @@ def main():
     report = json.loads(report_path.read_text(encoding="utf-8"))
     check_grafana()
     check_tempo(report)
-    check_pyroscope()
+    check_pyroscope(report)
 
 
 if __name__ == "__main__":

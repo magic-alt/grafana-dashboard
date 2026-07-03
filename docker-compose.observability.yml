@@ -17,6 +17,23 @@ services:
     ports:
       - "${PYROSCOPE_PORT:-4040}:4040"
 
+  alloy-profiler:
+    profiles: ["lean-ebpf"]
+    image: grafana/alloy:${ALLOY_VERSION:-latest}
+    container_name: stockdash-alloy-profiler
+    restart: unless-stopped
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    privileged: true
+    pid: host
+    ports:
+      - "${ALLOY_PORT:-12345}:12345"
+    volumes:
+      - ./observability/alloy-ebpf.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      pyroscope:
+        condition: service_started
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.130.1}
     container_name: stockdash-otel-collector
@@ -77,6 +94,87 @@ services:
       PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
       OBS_ANALYSIS_LOAD_FACTOR: ${OBS_ANALYSIS_LOAD_FACTOR:-12}
     volumes:
+      - ./test-results:/app/test-results
+    depends_on:
+      postgres:
+        condition: service_healthy
+      grafana:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+
+  observability-control:
+    build:
+      context: ./collector
+    container_name: stockdash-observability-control
+    restart: unless-stopped
+    command: ["python", "observability_control.py"]
+    ports:
+      - "${OBS_CONTROL_PORT:-18080}:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: stockdash
+      DB_USER: stock
+      DB_PASSWORD: stock
+      TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
+      YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
+      YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
+      OBSERVABILITY_ENABLED: "true"
+      OTEL_SERVICE_NAME: stock-observability-control
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_APPLICATION_NAME: stock.observability.control
+      GRAFANA_URL: http://grafana:3000
+      PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
+      PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
+      OBS_ANALYSIS_LOAD_FACTOR: ${OBS_ANALYSIS_LOAD_FACTOR:-12}
+    volumes:
+      - ./test-results:/app/test-results
+    depends_on:
+      postgres:
+        condition: service_healthy
+      grafana:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+
+  lean-observability-control:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile.lean
+    container_name: stockdash-lean-observability-control
+    restart: unless-stopped
+    command: ["python", "lean_observability_control.py"]
+    ports:
+      - "${LEAN_OBS_CONTROL_PORT:-18081}:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: stockdash
+      DB_USER: stock
+      DB_PASSWORD: stock
+      OBSERVABILITY_ENABLED: "true"
+      OTEL_SERVICE_NAME: lean-backtest-control
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_APPLICATION_NAME: lean.backtest.runner
+      GRAFANA_URL: http://grafana:3000
+      PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
+      PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
+      LEAN_PLATFORM_ROOT: ${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}
+      LEAN_DATA_DIR: ${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}
+      LEAN_RUNS_DIR: ${LEAN_RUNS_DIR:-/Users/kaermax/lean-platform/runs}
+      LEAN_DOCKER_IMAGE: ${LEAN_DOCKER_IMAGE:-quantconnect/lean:latest}
+      LEAN_OBS_PROFILE_LOAD_FACTOR: ${LEAN_OBS_PROFILE_LOAD_FACTOR:-8}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}:${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}
+      - ${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}:${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}
       - ./test-results:/app/test-results
     depends_on:
       postgres:
