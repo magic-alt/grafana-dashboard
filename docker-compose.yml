@@ -1,0 +1,65 @@
+name: stock-grafana-dashboard
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stockdash-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stockdash
+      POSTGRES_USER: stock
+      POSTGRES_PASSWORD: stock
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock -d stockdash"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+  collector:
+    build:
+      context: ./collector
+    container_name: stockdash-collector
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: stockdash
+      DB_USER: stock
+      DB_PASSWORD: stock
+      TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
+      YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
+      YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
+      REFRESH_SECONDS: ${REFRESH_SECONDS:-3600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana-oss:13.0.2
+    container_name: stockdash-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/stock-dashboard.json
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  grafana-data:
