@@ -56,6 +56,50 @@ npm run test:browser
 
 `smoke_check.py` 会检查 Grafana 健康状态、Postgres datasource 查询和 dashboard provisioning 内容。浏览器测试会真实打开 dashboard，并把截图保存到 `test-results/stock-dashboard.png`。
 
+## Flame Graph 与 Critical Path 实验
+
+观测实验在原链路上增加：
+
+- Tempo：保存 OpenTelemetry trace，用于看股票数据获取、分析、写库、Grafana 查询的调用路径
+- Pyroscope：保存 Python CPU profile，用于看分析阶段的 flame graph
+- Stock Observability Lab：Grafana 中的观测学习 dashboard
+
+启动完整环境：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+```
+
+运行一次端到端观测案例：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml run --rm observability-case
+npm run test:observability
+python3 scripts/observability_backend_check.py test-results/observability-case.json
+python3 scripts/critical_path_report.py test-results/observability-case.json
+```
+
+输出文件：
+
+- `test-results/observability-case.json`：单次实验的 trace id、阶段耗时、股票行数、指标行数和 Grafana 查询结果
+- `test-results/critical-path-report.md`：关键路径报告
+- `test-results/observability-dashboard.png`：浏览器实际渲染截图
+
+`observability_backend_check.py` 会用 report 里的 trace id 验证 Tempo trace，并查询 Pyroscope flame graph，确认能看到 `fetch_prices.py run_once`、`analysis.py analyze_records` 和 `analysis.py _visible_cpu_analysis`。
+
+打开 Grafana：
+
+- 股票 dashboard：http://localhost:3000/d/local-stock-market/local-stock-market-dashboard
+- 观测 dashboard：http://localhost:3000/d/stock-observability-lab/stock-observability-lab
+- Tempo Explore：http://localhost:3000/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22tempo%22%7D
+- Pyroscope Explore：http://localhost:3000/explore?schemaVersion=1&panes=%7B%7D&orgId=1&left=%7B%22datasource%22:%22pyroscope%22%7D
+
+如果 flame graph 不够明显，可以提高分析负载：
+
+```bash
+OBS_ANALYSIS_LOAD_FACTOR=30 docker compose -f docker-compose.yml -f docker-compose.observability.yml run --rm observability-case
+```
+
 ## 常用命令
 
 ```bash

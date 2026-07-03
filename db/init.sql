@@ -14,6 +14,45 @@ CREATE TABLE IF NOT EXISTS stock_prices (
 CREATE INDEX IF NOT EXISTS idx_stock_prices_time ON stock_prices (price_time);
 CREATE INDEX IF NOT EXISTS idx_stock_prices_symbol_time ON stock_prices (symbol, price_time DESC);
 
+CREATE TABLE IF NOT EXISTS stock_indicators (
+    symbol TEXT NOT NULL,
+    price_time TIMESTAMPTZ NOT NULL,
+    close NUMERIC,
+    daily_return_pct NUMERIC,
+    ma20 NUMERIC,
+    ma60 NUMERIC,
+    volatility20 NUMERIC,
+    drawdown_pct NUMERIC,
+    calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (symbol, price_time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_indicators_time ON stock_indicators (price_time);
+CREATE INDEX IF NOT EXISTS idx_stock_indicators_symbol_time ON stock_indicators (symbol, price_time DESC);
+
+CREATE TABLE IF NOT EXISTS observability_runs (
+    run_id UUID PRIMARY KEY,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL,
+    mode TEXT NOT NULL,
+    symbols TEXT[] NOT NULL,
+    price_rows INTEGER NOT NULL,
+    indicator_rows INTEGER NOT NULL,
+    download_ms NUMERIC,
+    normalize_ms NUMERIC,
+    analysis_ms NUMERIC,
+    store_prices_ms NUMERIC,
+    store_indicators_ms NUMERIC,
+    grafana_query_ms NUMERIC,
+    browser_render_ms NUMERIC,
+    total_ms NUMERIC,
+    trace_id TEXT,
+    status TEXT NOT NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_observability_runs_completed_at ON observability_runs (completed_at DESC);
+
 CREATE OR REPLACE VIEW stock_daily_returns AS
 SELECT
     symbol,

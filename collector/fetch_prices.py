@@ -9,6 +9,14 @@ import psycopg
 import yfinance as yf
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from analysis import analyze_records
+from observability_support import (
+    configure_observability,
+    profile_tags,
+    set_span_attributes,
+    span as obs_span,
+)
+
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -28,9 +36,105 @@ TICKERS = [item.strip().upper() for item in os.getenv("TICKERS", "AAPL,MSFT,NVDA
 YAHOO_PERIOD = os.getenv("YAHOO_PERIOD", "1y")
 YAHOO_INTERVAL = os.getenv("YAHOO_INTERVAL", "1d")
 REFRESH_SECONDS = int(os.getenv("REFRESH_SECONDS", "3600"))
+ANALYSIS_LOAD_FACTOR = int(os.getenv("OBS_ANALYSIS_LOAD_FACTOR", "1"))
 
 
-UPSERT_SQL = """
+SCHEMA_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS stock_prices (
+        symbol TEXT NOT NULL,
+        price_time TIMESTAMPTZ NOT NULL,
+        open NUMERIC,
+        high NUMERIC,
+        low NUMERIC,
+        close NUMERIC,
+        adj_close NUMERIC,
+        volume BIGINT,
+        fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (symbol, price_time)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_stock_prices_time ON stock_prices (price_time)",
+    "CREATE INDEX IF NOT EXISTS idx_stock_prices_symbol_time ON stock_prices (symbol, price_time DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS stock_indicators (
+        symbol TEXT NOT NULL,
+        price_time TIMESTAMPTZ NOT NULL,
+        close NUMERIC,
+        daily_return_pct NUMERIC,
+        ma20 NUMERIC,
+        ma60 NUMERIC,
+        volatility20 NUMERIC,
+        drawdown_pct NUMERIC,
+        calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (symbol, price_time)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_stock_indicators_time ON stock_indicators (price_time)",
+    "CREATE INDEX IF NOT EXISTS idx_stock_indicators_symbol_time ON stock_indicators (symbol, price_time DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS observability_runs (
+        run_id UUID PRIMARY KEY,
+        started_at TIMESTAMPTZ NOT NULL,
+        completed_at TIMESTAMPTZ NOT NULL,
+        mode TEXT NOT NULL,
+        symbols TEXT[] NOT NULL,
+        price_rows INTEGER NOT NULL,
+        indicator_rows INTEGER NOT NULL,
+        download_ms NUMERIC,
+        normalize_ms NUMERIC,
+        analysis_ms NUMERIC,
+        store_prices_ms NUMERIC,
+        store_indicators_ms NUMERIC,
+        grafana_query_ms NUMERIC,
+        browser_render_ms NUMERIC,
+        total_ms NUMERIC,
+        trace_id TEXT,
+        status TEXT NOT NULL,
+        details JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_observability_runs_completed_at ON observability_runs (completed_at DESC)",
+    """
+    CREATE OR REPLACE VIEW stock_daily_returns AS
+    SELECT
+        symbol,
+        price_time,
+        close,
+        (close / NULLIF(LAG(close) OVER (PARTITION BY symbol ORDER BY price_time), 0) - 1) * 100 AS daily_return_pct
+    FROM stock_prices
+    WHERE close IS NOT NULL
+    """,
+    """
+    CREATE OR REPLACE VIEW stock_summary AS
+    WITH ranked AS (
+        SELECT
+            symbol,
+            price_time,
+            close,
+            volume,
+            ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price_time DESC) AS rn
+        FROM stock_prices
+        WHERE close IS NOT NULL
+    )
+    SELECT
+        cur.symbol,
+        cur.price_time,
+        cur.close,
+        prev.close AS previous_close,
+        cur.close - prev.close AS day_change,
+        (cur.close / NULLIF(prev.close, 0) - 1) * 100 AS day_change_pct,
+        cur.volume
+    FROM ranked cur
+    LEFT JOIN ranked prev
+        ON prev.symbol = cur.symbol
+       AND prev.rn = 2
+    WHERE cur.rn = 1
+    """,
+]
+
+
+UPSERT_PRICES_SQL = """
 INSERT INTO stock_prices (
     symbol, price_time, open, high, low, close, adj_close, volume, fetched_at
 ) VALUES (
@@ -45,6 +149,24 @@ ON CONFLICT (symbol, price_time) DO UPDATE SET
     adj_close = EXCLUDED.adj_close,
     volume = EXCLUDED.volume,
     fetched_at = now();
+"""
+
+
+UPSERT_INDICATORS_SQL = """
+INSERT INTO stock_indicators (
+    symbol, price_time, close, daily_return_pct, ma20, ma60, volatility20, drawdown_pct, calculated_at
+) VALUES (
+    %(symbol)s, %(price_time)s, %(close)s, %(daily_return_pct)s, %(ma20)s, %(ma60)s,
+    %(volatility20)s, %(drawdown_pct)s, now()
+)
+ON CONFLICT (symbol, price_time) DO UPDATE SET
+    close = EXCLUDED.close,
+    daily_return_pct = EXCLUDED.daily_return_pct,
+    ma20 = EXCLUDED.ma20,
+    ma60 = EXCLUDED.ma60,
+    volatility20 = EXCLUDED.volatility20,
+    drawdown_pct = EXCLUDED.drawdown_pct,
+    calculated_at = now();
 """
 
 
@@ -109,10 +231,22 @@ def records_from_frame(symbol, frame):
     return records
 
 
+def elapsed_ms(started):
+    return round((time.perf_counter() - started) * 1000, 3)
+
+
 @retry(stop=stop_after_attempt(8), wait=wait_exponential(multiplier=1, min=1, max=30))
 def wait_for_db():
     with psycopg.connect(**DB) as conn:
         conn.execute("SELECT 1")
+
+
+def ensure_schema():
+    with psycopg.connect(**DB) as conn:
+        with conn.cursor() as cur:
+            for statement in SCHEMA_SQL:
+                cur.execute(statement)
+        conn.commit()
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30))
@@ -136,37 +270,135 @@ def store_records(records):
     if not records:
         return 0
 
-    with psycopg.connect(**DB) as conn:
-        with conn.cursor() as cur:
-            cur.executemany(UPSERT_SQL, records)
-        conn.commit()
+    with profile_tags({"stage": "store_prices"}):
+        with obs_span("stock.store_prices", {"stock.rows": len(records)}):
+            with psycopg.connect(**DB) as conn:
+                with conn.cursor() as cur:
+                    cur.executemany(UPSERT_PRICES_SQL, records)
+                conn.commit()
 
     return len(records)
 
 
-def run_once():
-    data = download_prices()
-    all_records = []
+def store_indicators(indicators):
+    if not indicators:
+        return 0
 
-    for symbol in TICKERS:
-        try:
-            frame = get_symbol_frame(data, symbol)
-        except Exception as exc:
-            logging.warning("unable to extract %s from Yahoo result: %s", symbol, exc)
-            continue
-        records = records_from_frame(symbol, frame)
-        logging.info("prepared %s rows for %s", len(records), symbol)
-        all_records.extend(records)
+    with profile_tags({"stage": "store_indicators"}):
+        with obs_span("stock.store_indicators", {"stock.rows": len(indicators)}):
+            with psycopg.connect(**DB) as conn:
+                with conn.cursor() as cur:
+                    cur.executemany(UPSERT_INDICATORS_SQL, indicators)
+                conn.commit()
 
-    count = store_records(all_records)
-    logging.info("upserted %s price rows", count)
+    return len(indicators)
+
+
+def run_once(load_factor=None, include_analysis=True):
+    load_factor = ANALYSIS_LOAD_FACTOR if load_factor is None else int(load_factor)
+    total_started = time.perf_counter()
+    result = {
+        "symbols": TICKERS,
+        "period": YAHOO_PERIOD,
+        "interval": YAHOO_INTERVAL,
+        "price_rows": 0,
+        "indicator_rows": 0,
+        "stage_timings_ms": {},
+        "per_symbol": [],
+    }
+
+    with obs_span(
+        "stock.pipeline.run",
+        {
+            "stock.symbols": ",".join(TICKERS),
+            "stock.symbol_count": len(TICKERS),
+            "stock.period": YAHOO_PERIOD,
+            "stock.interval": YAHOO_INTERVAL,
+            "analysis.load_factor": load_factor,
+        },
+    ) as active_span:
+        ensure_schema()
+
+        started = time.perf_counter()
+        with profile_tags({"stage": "download_prices"}):
+            with obs_span(
+                "stock.download_prices",
+                {
+                    "stock.symbols": ",".join(TICKERS),
+                    "stock.symbol_count": len(TICKERS),
+                    "stock.period": YAHOO_PERIOD,
+                    "stock.interval": YAHOO_INTERVAL,
+                },
+            ):
+                data = download_prices()
+        result["stage_timings_ms"]["download_prices"] = elapsed_ms(started)
+
+        all_records = []
+        normalize_total_ms = 0.0
+        for symbol in TICKERS:
+            started = time.perf_counter()
+            with profile_tags({"stage": "normalize_prices", "symbol": symbol}):
+                with obs_span("stock.normalize_prices", {"stock.symbol": symbol}):
+                    try:
+                        frame = get_symbol_frame(data, symbol)
+                    except Exception as exc:
+                        logging.warning("unable to extract %s from Yahoo result: %s", symbol, exc)
+                        continue
+                    records = records_from_frame(symbol, frame)
+            symbol_ms = elapsed_ms(started)
+            normalize_total_ms += symbol_ms
+            logging.info("prepared %s rows for %s", len(records), symbol)
+            result["per_symbol"].append({"symbol": symbol, "price_rows": len(records), "normalize_ms": symbol_ms})
+            all_records.extend(records)
+        result["stage_timings_ms"]["normalize_prices"] = round(normalize_total_ms, 3)
+
+        started = time.perf_counter()
+        count = store_records(all_records)
+        result["stage_timings_ms"]["store_prices"] = elapsed_ms(started)
+        result["price_rows"] = count
+        logging.info("upserted %s price rows", count)
+
+        if include_analysis:
+            started = time.perf_counter()
+            with profile_tags({"stage": "analysis"}):
+                with obs_span(
+                    "stock.analysis",
+                    {"stock.rows": len(all_records), "analysis.load_factor": load_factor},
+                ):
+                    indicators, analysis_meta = analyze_records(all_records, load_factor=load_factor)
+            result["stage_timings_ms"]["analysis"] = elapsed_ms(started)
+            result["analysis"] = analysis_meta
+
+            by_symbol = {item["symbol"]: item for item in result["per_symbol"]}
+            for item in analysis_meta.get("symbols", []):
+                by_symbol.setdefault(item["symbol"], {"symbol": item["symbol"]}).update(item)
+
+            started = time.perf_counter()
+            indicator_count = store_indicators(indicators)
+            result["stage_timings_ms"]["store_indicators"] = elapsed_ms(started)
+            result["indicator_rows"] = indicator_count
+            logging.info("upserted %s indicator rows", indicator_count)
+
+        result["total_ms"] = elapsed_ms(total_started)
+        set_span_attributes(
+            active_span,
+            {
+                "stock.price_rows": result["price_rows"],
+                "stock.indicator_rows": result["indicator_rows"],
+                "stock.total_ms": result["total_ms"],
+            },
+        )
+
+    return result
 
 
 def main():
     if not TICKERS:
         raise SystemExit("TICKERS is empty")
 
+    configure_observability(os.getenv("OTEL_SERVICE_NAME", "stock-collector"))
     wait_for_db()
+    ensure_schema()
     logging.info("collector started refresh_seconds=%s", REFRESH_SECONDS)
 
     while True:
