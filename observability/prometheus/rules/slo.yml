@@ -1,0 +1,12 @@
+groups:
+  - name: platform-availability-slo
+    interval: 30s
+    rules:
+      - record: platform:slo_availability:target
+        expr: vector(0.999)
+      - record: platform:slo_availability:error_budget_fraction
+        expr: vector(0.001)
+      - record: platform:slo_availability:burn_rate_5m
+        expr: platform:http_error_ratio:rate5m / 0.001
+      - record: platform:slo_availability:burn_rate_1h
+        expr: (sum by (service_namespace, project_name, service_name, deployment_environment) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1h])) / clamp_min(sum by (service_namespace, project_name, service_name, deployment_environment) (rate(http_server_request_duration_seconds_count[1h])), 0.000001)) / 0.001

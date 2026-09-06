@@ -1,0 +1,25 @@
+groups:
+  - name: platform-slo-alerts
+    rules:
+      - alert: ServiceErrorBudgetFastBurn
+        expr: platform:slo_availability:burn_rate_5m > 14.4 and platform:slo_availability:burn_rate_1h > 14.4
+        for: 5m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "Fast error-budget burn for {{ $labels.service_name }}"
+          description: "The service is consuming a 99.9% availability error budget at >14.4x over both 5m and 1h windows."
+      - alert: TelemetryExporterDroppingData
+        expr: sum by (service_instance_id) (rate(otelcol_exporter_send_failed_spans_total[5m]) + rate(otelcol_exporter_send_failed_metric_points_total[5m]) + rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenTelemetry Collector is dropping telemetry"
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus rule evaluation failure"

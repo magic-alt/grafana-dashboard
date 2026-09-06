@@ -1,0 +1,20 @@
+groups:
+  - name: platform-red-recording
+    interval: 30s
+    rules:
+      - record: platform:http_requests:rate5m
+        expr: sum by (service_namespace, project_name, service_name, deployment_environment) (rate(http_server_request_duration_seconds_count[5m]))
+      - record: platform:http_errors:rate5m
+        expr: sum by (service_namespace, project_name, service_name, deployment_environment) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+      - record: platform:http_error_ratio:rate5m
+        expr: platform:http_errors:rate5m / clamp_min(platform:http_requests:rate5m, 0.000001)
+      - record: platform:http_latency:p95_5m
+        expr: histogram_quantile(0.95, sum by (le, service_namespace, project_name, service_name, deployment_environment) (rate(http_server_request_duration_seconds_bucket[5m])))
+
+  - name: platform-use-recording
+    interval: 30s
+    rules:
+      - record: platform:process_cpu:rate5m
+        expr: sum by (service_namespace, project_name, service_name, deployment_environment) (rate(process_cpu_seconds_total[5m]))
+      - record: platform:process_memory:bytes
+        expr: max by (service_namespace, project_name, service_name, deployment_environment) (process_resident_memory_bytes)

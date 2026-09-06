@@ -1,0 +1,32 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {"id": 1, "type": "stat", "title": "Fleet request rate", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "sum(platform:http_requests:rate5m)", "legendFormat": "requests/s"}], "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}},
+    {"id": 2, "type": "stat", "title": "Fleet 5xx ratio", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "sum(platform:http_errors:rate5m) / clamp_min(sum(platform:http_requests:rate5m), 0.000001)", "legendFormat": "error ratio"}], "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0}},
+    {"id": 3, "type": "stat", "title": "Critical alerts", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "sum(ALERTS{alertstate=\"firing\",severity=\"critical\"})", "legendFormat": "firing"}], "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0}},
+    {"id": 4, "type": "stat", "title": "Telemetry export failures", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[5m]) + rate(otelcol_exporter_send_failed_metric_points_total[5m]) + rate(otelcol_exporter_send_failed_log_records_total[5m]))", "legendFormat": "failures/s"}], "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0}},
+    {"id": 5, "type": "timeseries", "title": "RED — request rate by service", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "platform:http_requests:rate5m{service_namespace=~\"$namespace\",deployment_environment=~\"$environment\",project_name=~\"$project\"}", "legendFormat": "{{project_name}} / {{service_name}}"}], "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}},
+    {"id": 6, "type": "timeseries", "title": "RED — p95 latency", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "platform:http_latency:p95_5m{service_namespace=~\"$namespace\",deployment_environment=~\"$environment\",project_name=~\"$project\"}", "legendFormat": "{{project_name}} / {{service_name}}"}], "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}},
+    {"id": 7, "type": "timeseries", "title": "USE — process CPU", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "platform:process_cpu:rate5m{service_namespace=~\"$namespace\",deployment_environment=~\"$environment\",project_name=~\"$project\"}", "legendFormat": "{{project_name}} / {{service_name}}"}], "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13}},
+    {"id": 8, "type": "timeseries", "title": "USE — process memory", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"refId": "A", "expr": "platform:process_memory:bytes{service_namespace=~\"$namespace\",deployment_environment=~\"$environment\",project_name=~\"$project\"}", "legendFormat": "{{project_name}} / {{service_name}}"}], "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13}}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["platform", "fleet", "red", "use", "slo"],
+  "templating": {"list": [
+    {"name": "namespace", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(service_namespace)", "refId": "namespace"}, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}},
+    {"name": "environment", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(deployment_environment)", "refId": "environment"}, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}},
+    {"name": "project", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(project_name)", "refId": "project"}, "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}}
+  ]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Platform Fleet Overview",
+  "uid": "platform-fleet-overview",
+  "version": 1
+}

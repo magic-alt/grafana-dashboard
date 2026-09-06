@@ -1,0 +1,43 @@
+apiVersion: observability.magic-alt/v1
+kind: TelemetryPolicy
+metadata:
+  version: 1
+spec:
+  traces:
+    defaultSamplePercent: 20
+    alwaysKeep:
+      - errors
+      - deployment.environment=ci
+    retention:
+      local: 24h
+      staging: 7d
+      production: 14d
+  metrics:
+    maxActiveSeriesPerService: 10000
+    maxCustomLabelsPerMetric: 8
+    forbiddenLabelClasses:
+      - request_id
+      - trace_id
+      - user_id
+      - order_id
+      - prompt
+      - file_path
+      - raw_url
+    retention:
+      local: 7d
+      production: 30d
+  logs:
+    defaultLevel: INFO
+    prohibitByDefault:
+      - prompt_content
+      - document_content
+      - credentials
+      - access_tokens
+      - personal_data
+    retention:
+      local: 7d
+      production: 30d
+  budgets:
+    developmentMonthlyUsd: 25
+    productionRequiresExplicitBudget: true
+    reviewWhenEstimatedIngestionIncreasePercent: 20
