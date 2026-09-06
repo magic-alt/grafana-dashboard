@@ -6,6 +6,14 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+x-database-env: &database-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-stockdash}
+  DB_USER: ${POSTGRES_USER:-stock}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  DB_SSLMODE: disable
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -22,7 +30,20 @@ services:
       start_period: 5s
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    build:
+      context: ./collector
+    restart: "no"
+    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"]
+    environment: *database-env
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks: [backend]
     logging: *default-logging
     security_opt:
@@ -34,12 +55,7 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: ${POSTGRES_DB:-stockdash}
-      DB_USER: ${POSTGRES_USER:-stock}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      DB_SSLMODE: disable
+      <<: *database-env
       TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
       YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
       YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
@@ -50,8 +66,8 @@ services:
       OBS_PROJECT: ${OBS_PROJECT:-grafana-dashboard}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [backend]
     logging: *default-logging
     security_opt:
@@ -67,7 +83,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS_ENABLED:-false}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: light
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/stock-dashboard.json
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/platform-fleet-overview.json
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB:-stockdash}
@@ -81,8 +97,8 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [backend, frontend]
     logging: *default-logging
     security_opt:

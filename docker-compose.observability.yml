@@ -16,8 +16,7 @@ services:
       - tempo-data:/var/tempo
     networks: [backend]
     logging: *default-logging
-    security_opt:
-      - no-new-privileges:true
+    security_opt: ["no-new-privileges:true"]
 
   pyroscope:
     image: grafana/pyroscope:${PYROSCOPE_VERSION:-2.2.0}
@@ -28,8 +27,7 @@ services:
       - pyroscope-data:/var/lib/pyroscope
     networks: [backend]
     logging: *default-logging
-    security_opt:
-      - no-new-privileges:true
+    security_opt: ["no-new-privileges:true"]
 
   loki:
     image: grafana/loki:${LOKI_VERSION:-3.7.7}
@@ -42,8 +40,7 @@ services:
       - loki-data:/loki
     networks: [backend]
     logging: *default-logging
-    security_opt:
-      - no-new-privileges:true
+    security_opt: ["no-new-privileges:true"]
 
   prometheus:
     image: prom/prometheus:v${PROMETHEUS_VERSION:-3.14.0}
@@ -51,17 +48,17 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-7d}
       - --web.enable-lifecycle
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     networks: [backend]
     logging: *default-logging
-    security_opt:
-      - no-new-privileges:true
+    security_opt: ["no-new-privileges:true"]
 
   alloy-profiler:
     profiles: ["lean-ebpf"]
@@ -101,8 +98,7 @@ services:
         condition: service_started
     networks: [backend, frontend]
     logging: *default-logging
-    security_opt:
-      - no-new-privileges:true
+    security_opt: ["no-new-privileges:true"]
 
   collector:
     environment:
@@ -112,6 +108,8 @@ services:
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       PYROSCOPE_APPLICATION_NAME: stock.collector
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
       pyroscope:
@@ -119,6 +117,8 @@ services:
 
   grafana:
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       tempo:
         condition: service_started
       pyroscope:
@@ -159,8 +159,8 @@ services:
     volumes:
       - ./test-results:/app/test-results
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       grafana:
         condition: service_started
       otel-collector:
@@ -184,31 +184,27 @@ services:
       DB_NAME: ${POSTGRES_DB:-stockdash}
       DB_USER: ${POSTGRES_USER:-stock}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      CONTROL_API_KEYS_JSON: ${CONTROL_API_KEYS_JSON:-}
       TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
       YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
       YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
       OBSERVABILITY_ENABLED: "true"
-      OTEL_SERVICE_NAME: stock-observability-control
+      OTEL_SERVICE_NAME: observability-control-plane
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
-      PYROSCOPE_APPLICATION_NAME: stock.observability.control
+      PYROSCOPE_APPLICATION_NAME: observability.control
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
-      OBS_PROJECT: stock-lab
+      OBS_PROJECT: grafana-dashboard
       GRAFANA_URL: http://grafana:3000
       PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
-      PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
       OBS_ANALYSIS_LOAD_FACTOR: ${OBS_ANALYSIS_LOAD_FACTOR:-12}
-    volumes:
-      - ./test-results:/app/test-results
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       grafana:
         condition: service_started
       otel-collector:
-        condition: service_started
-      pyroscope:
         condition: service_started
     networks: [backend, frontend]
     logging: *default-logging
@@ -250,8 +246,8 @@ services:
       - ${LEAN_DATA_DIR:-./.local/lean-data}:/lean/data
       - ./test-results:/app/test-results
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       grafana:
         condition: service_started
       otel-collector:
