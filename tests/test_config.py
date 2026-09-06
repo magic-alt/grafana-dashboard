@@ -1,5 +1,4 @@
 import pytest
-
 from obs_platform.config import DatabaseSettings, TelemetrySettings, env_bool
 
 
