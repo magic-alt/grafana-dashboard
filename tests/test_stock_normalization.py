@@ -1,7 +1,6 @@
-from datetime import timezone
+from datetime import UTC
 
 import pandas as pd
-
 from fetch_prices import records_from_frame
 
 
@@ -25,7 +24,7 @@ def test_records_from_frame_normalizes_market_data():
     assert records[0]["close"] == 101.5
     assert records[0]["adj_close"] == 101.4
     assert records[0]["volume"] == 1_000
-    assert records[0]["price_time"].tzinfo == timezone.utc
+    assert records[0]["price_time"].tzinfo == UTC
 
 
 def test_records_from_frame_drops_rows_without_close():
