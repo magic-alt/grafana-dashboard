@@ -33,8 +33,11 @@ done
 
 python scripts/otel_e2e.py
 
-docker run --rm \
-  --entrypoint=/bin/promtool \
-  -v "$PWD/observability/prometheus/rules:/rules:ro" \
-  prom/prometheus:v${PROMETHEUS_VERSION:-3.14.0} \
-  check rules /rules/*.yml
+rule_dir="$PWD/observability/prometheus/rules"
+for rule_file in "$rule_dir"/*.yml; do
+  docker run --rm \
+    --entrypoint=/bin/promtool \
+    -v "$rule_dir:/rules:ro" \
+    prom/prometheus:v${PROMETHEUS_VERSION:-3.14.0} \
+    check rules "/rules/$(basename "$rule_file")"
+done
