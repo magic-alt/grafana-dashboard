@@ -10,7 +10,6 @@ from typing import Annotated
 import psycopg
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
-
 from obs_platform.config import DatabaseSettings
 from observability_case import run_case, wait_for_grafana
 from observability_support import configure_observability
