@@ -4,7 +4,8 @@ import logging
 import time
 
 from analysis import analyze_records
-from observability_support import profile_tags, set_span_attributes, span as obs_span
+from observability_support import profile_tags, set_span_attributes
+from observability_support import span as obs_span
 
 from .config import StockSettings
 from .domain import get_symbol_frame, records_from_frame
