@@ -7,7 +7,6 @@ from typing import Any
 
 from .config import TelemetrySettings
 
-
 _LOG = logging.getLogger(__name__)
 _TRACER: Any = None
 _TRACING_READY = False
@@ -117,12 +116,12 @@ def span(name: str, attributes: Mapping[str, Any] | None = None) -> Iterator[Any
 def set_span_attributes(active_span: Any, attributes: Mapping[str, Any] | None) -> None:
     if active_span is None:
         return
+    scalar_types = (str, bool, int, float)
     for key, value in (attributes or {}).items():
         if value is None:
             continue
-        if isinstance(value, (str, bool, int, float)):
-            active_span.set_attribute(key, value)
-        elif isinstance(value, (list, tuple)) and all(isinstance(item, (str, bool, int, float)) for item in value):
+        is_scalar_sequence = isinstance(value, (list, tuple)) and all(isinstance(item, scalar_types) for item in value)
+        if isinstance(value, scalar_types) or is_scalar_sequence:
             active_span.set_attribute(key, value)
         else:
             active_span.set_attribute(key, str(value))
