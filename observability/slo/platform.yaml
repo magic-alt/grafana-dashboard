@@ -1,0 +1,31 @@
+apiVersion: observability.magic-alt/v1
+kind: SLOCatalog
+metadata:
+  owner: platform
+  version: 1
+spec:
+  defaults:
+    availability:
+      objective: 0.999
+      window: 30d
+      indicator: http_5xx_ratio
+    latency:
+      objective: 0.99
+      window: 30d
+      threshold: 1s
+      indicator: http_server_request_duration
+  alerting:
+    fastBurn:
+      shortWindow: 5m
+      longWindow: 1h
+      burnRate: 14.4
+    slowBurn:
+      shortWindow: 30m
+      longWindow: 6h
+      burnRate: 6
+  requiredResourceAttributes:
+    - service.name
+    - service.namespace
+    - service.version
+    - deployment.environment
+    - project.name

@@ -23,9 +23,27 @@ processors:
       - key: deployment.environment
         value: ${env:DEPLOYMENT_ENVIRONMENT:-local}
         action: insert
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 50000
+    expected_new_traces_per_sec: 100
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-ci
+        type: string_attribute
+        string_attribute:
+          key: deployment.environment
+          values: [ci]
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 20
   batch:
     send_batch_size: 1024
-    timeout: 5s
+    timeout: 2s
 
 exporters:
   otlp/tempo:
@@ -40,10 +58,13 @@ exporters:
 
 service:
   extensions: [health_check]
+  telemetry:
+    metrics:
+      level: normal
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resource/defaults, batch]
+      processors: [memory_limiter, resource/defaults, tail_sampling, batch]
       exporters: [otlp/tempo]
     metrics:
       receivers: [otlp]
