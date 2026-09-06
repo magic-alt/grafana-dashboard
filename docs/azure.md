@@ -1,161 +1,94 @@
-# Azure deployment
+# Azure production deployment
 
-## Deployment philosophy
+## Target architecture
 
-Do not lift the local Docker Compose observability stack unchanged into Azure.
-
-The stable interface is **OTLP**, not a particular telemetry backend. Local development uses the Grafana OSS stack because it is cheap, inspectable, and portable. Azure should preferentially use managed services for identity, operations, and telemetry storage while preserving the same application instrumentation contract.
-
-Recommended target:
+The Azure deployment keeps OTLP as the application contract and replaces local LGTM storage with Azure managed services:
 
 ```text
-Application workloads
-    |
-    | OTLP
-    v
-OpenTelemetry gateway / Azure Monitor ingestion
-    |
-    +--> Azure Monitor / Log Analytics
-    +--> Azure Monitor Workspace
-                |
-                v
-        Azure Managed Grafana
+GitHub Actions --OIDC--> Azure deployment identity
+                           |
+Applications/collectors --OTLP + Entra--> DCE / DCR
+                           |                 |       |
+                           |              metrics  logs/traces
+                           |                 |       |
+                           |              Azure    Log Analytics
+                           |              Monitor      |
+                           |                 +----+----+
+                           |                      |
+                           +----------------> Managed Grafana
+                                                  |
+                                            private access
 ```
 
-Reference/domain PostgreSQL data should move to an Azure database only if the stock/LEAN lab itself needs to run in Azure. It is not required for generic observability ingestion.
+The Bicep landing zone creates a user-assigned workload identity, VNet/subnets, Log Analytics, Azure Monitor Workspace, native OTLP DCE/DCR, Azure Managed Grafana, Key Vault, Container Apps Environment, RBAC assignments, and production/staging private endpoints for Grafana and Key Vault. The stock/LEAN PostgreSQL database is optional because generic observability does not require domain storage.
 
-## What the Bicep landing zone creates
+## GitHub OIDC
 
-`deploy/azure/main.bicep` currently creates a development landing zone containing:
+The deployment workflow uses `id-token: write` and `azure/login`. Configure an Entra application or user-assigned identity with a federated credential that trusts this repository/environment. Store only identifiers (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) in the GitHub environment; do not create an Azure client secret.
 
-- Log Analytics workspace;
-- Azure Monitor workspace;
-- Azure Managed Grafana with a system-assigned managed identity;
-- Azure Container Apps managed environment for optional application/collector workloads.
+Use protected GitHub Environments named `staging` and `prod`. Restrict production to the default branch or signed release tags and require an approving reviewer.
 
-This is deliberately a **landing zone**, not the final production topology. It validates resource creation, naming, and the cloud deployment boundary without pretending that public networking and development retention are production security settings.
+## Native OTLP / DCR
 
-## Prerequisites
+The Bicep definition creates `directDataSources` for:
 
-- Azure CLI with Bicep support;
-- a selected subscription;
-- a resource group in the intended Azure region;
-- permission to deploy the resources above and create the required role assignments during the production-hardening phase.
+- metrics stream `Custom-Metrics-Otel` → Azure Monitor Workspace;
+- logs stream `Microsoft-OTel-Logs` → Log Analytics;
+- trace span/event/resource streams → Log Analytics.
 
-## Validate Bicep locally
+The workload managed identity receives `Monitoring Metrics Publisher` at DCR scope. The DCE remains publicly addressable in this phase but requires Entra authentication; private Azure Monitor ingestion through AMPLS is a separate production networking gate because it changes DNS and all Monitor ingestion/query paths together.
+
+Native OTLP/DCR ingestion is still treated as a staging-qualified capability: `azure_smoke.sh` must be extended with an authenticated three-signal probe in the target subscription before production approval.
+
+## Managed Grafana
+
+Azure Managed Grafana uses a system-assigned identity. IaC grants it Monitoring Reader on both Azure Monitor Workspace and Log Analytics. Grafana also creates a managed private endpoint to the Azure Monitor Workspace using the `prometheusMetrics` private-link group.
+
+For `staging`/`prod`, the Grafana workspace disables public access and receives an inbound private endpoint in the platform VNet with the `privatelink.grafana.azure.com` private DNS zone. Operators therefore need network reachability (VPN, Bastion/VM, peered VNet, or an approved private access path) before using the UI.
+
+## Key Vault
+
+Key Vault uses Azure RBAC and denies public traffic in staging/production. The workload managed identity receives Key Vault Secrets User. A private endpoint and `privatelink.vaultcore.azure.net` DNS zone are created for non-development environments.
+
+## Optional PostgreSQL
+
+Set `deployReferenceDatabase=true` only if the stock/LEAN reference workloads themselves will run in Azure. The database is deployed into a dedicated delegated subnet with private DNS and public network access disabled. The generic fleet/OTLP platform does not depend on PostgreSQL.
+
+Provide the password as a secure deployment parameter; IaC stores it in Key Vault. Production should later replace password administration with Microsoft Entra authentication for application access where practical.
+
+## Deployment
 
 ```bash
-make azure-check
-```
+az group create --name rg-magic-observability-staging --location southeastasia
 
-Equivalent command:
-
-```bash
-az bicep build --file deploy/azure/main.bicep --stdout >/dev/null
-```
-
-## Development deployment
-
-Example:
-
-```bash
-az group create \
-  --name rg-magic-observability-dev \
-  --location southeastasia
+az deployment group what-if \
+  --resource-group rg-magic-observability-staging \
+  --template-file deploy/azure/main.bicep \
+  --parameters namePrefix=magicobs environment=staging
 
 az deployment group create \
-  --resource-group rg-magic-observability-dev \
+  --resource-group rg-magic-observability-staging \
   --template-file deploy/azure/main.bicep \
-  --parameters \
-      namePrefix=magicobs \
-      environment=dev \
-      logRetentionDays=30
+  --parameters namePrefix=magicobs environment=staging
 ```
 
-Inspect outputs:
+CI performs Bicep compilation without cloud credentials. `.github/workflows/azure-deploy.yml` is the credentialed, environment-protected deployment path.
 
-```bash
-az deployment group show \
-  --resource-group rg-magic-observability-dev \
-  --name main \
-  --query properties.outputs
-```
+## Production gates
 
-Azure may choose a generated deployment name if `--name` is omitted. Use the actual deployment name shown by the CLI.
+A production promotion requires all of these:
 
-## Workload configuration
+1. CI, CodeQL, OTLP E2E, rule validation and IaC compilation green.
+2. Release image referenced by immutable digest and carrying SBOM, signature and provenance.
+3. GitHub `staging` environment deployment successful.
+4. Azure what-if reviewed.
+5. Managed Grafana access works through the intended private route.
+6. DCR identity/RBAC confirmed and native OTLP logs/metrics/traces tested in Azure.
+7. Alert routing and one synthetic alert verified.
+8. Cost Management snapshot captured and compared with the environment budget.
+9. Backup/restore test completed if optional PostgreSQL is enabled.
+10. `prod` environment approval granted.
 
-Keep the same resource contract used locally:
+## Remaining private-networking gate
 
-```text
-OTEL_SERVICE_NAME=<service>
-OBS_SERVICE_NAMESPACE=magic-alt
-SERVICE_VERSION=<release-or-git-sha>
-DEPLOYMENT_ENVIRONMENT=dev
-OBS_PROJECT=<project>
-```
-
-The actual Azure Monitor/OTLP endpoint and authentication mechanism must be injected by the Azure deployment layer. Do not bake Azure credentials into an application image or Grafana provisioning file.
-
-## Production hardening backlog
-
-Before a production rollout, add and validate all of the following.
-
-### Identity and access
-
-- Entra ID groups for Grafana Admin/Editor/Viewer roles;
-- managed identities for workloads;
-- least-privilege role assignments between Managed Grafana and Azure Monitor resources;
-- no long-lived Grafana API keys unless there is a specific automation requirement;
-- separate human administration and workload identities.
-
-### Secrets
-
-- Azure Key Vault for application/database secrets;
-- Key Vault references or managed identity instead of plaintext environment secrets;
-- secret rotation tests.
-
-### Networking
-
-- private networking/private endpoints where supported;
-- VNet integration for application workloads;
-- explicit ingress policy for any OpenTelemetry gateway;
-- no public database exposure;
-- egress policy for data sources/model providers/broker APIs as required by each workload.
-
-### Reliability
-
-- production retention policy per signal type;
-- capacity and ingestion-volume tests;
-- availability objectives and alert routing;
-- backup/restore for domain PostgreSQL if deployed;
-- infrastructure deployment rollback strategy;
-- regional/zone design based on the required SLA.
-
-### Cost governance
-
-Observability is easy to make more expensive than the workload it observes. Define budgets for:
-
-- Log Analytics ingestion and retention;
-- metric cardinality;
-- trace sample rate;
-- profile sample/retention policy;
-- dashboard/query frequency;
-- Container Apps minimum replicas and scaling.
-
-Development should default to short retention and aggressive telemetry hygiene. Production increases retention only for signals with a concrete operational or compliance requirement.
-
-## Azure validation gate
-
-A deployment should not be called validated merely because Bicep returned success. The Azure verification run should prove:
-
-1. the Managed Grafana endpoint is reachable through the intended identity path;
-2. a test service can emit OTLP logs, metrics, and traces;
-3. all three signals arrive in the intended Azure Monitor stores;
-4. a trace can be correlated to related logs/metrics in Grafana;
-5. dashboard provisioning/import is repeatable from Git;
-6. an alert can fire and reach a test notification route;
-7. telemetry stops or degrades predictably when a dependency is denied or unavailable;
-8. cost/ingestion volume for the validation window is recorded.
-
-Keep the Azure smoke test as automation in this repository once credentials/federated GitHub identity are configured. Until then, CI validates the Bicep syntax and local telemetry contract without requiring cloud credentials.
+The template makes Grafana and Key Vault private and VNet-integrates Container Apps/PostgreSQL. Fully private Azure Monitor ingestion/query requires Azure Monitor Private Link Scope (AMPLS) and DNS changes. That should be introduced after the staging native-OTLP path is proven because an incorrectly scoped AMPLS can break ingestion/query for all attached Monitor resources.
