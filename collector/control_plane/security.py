@@ -4,8 +4,9 @@ import hmac
 import json
 import os
 from dataclasses import dataclass
+from typing import Annotated
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 ROLE_LEVEL = {"viewer": 10, "operator": 20, "admin": 30}
 
@@ -33,10 +34,13 @@ def _configured_keys() -> dict[str, str]:
     return result
 
 
-def authenticate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> Principal:
+def authenticate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> Principal:  # noqa: B008
     keys = _configured_keys()
     if not keys:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="control plane has no configured credentials")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control plane has no configured credentials",
+        )
     supplied = x_api_key or ""
     for candidate, role in keys.items():
         if hmac.compare_digest(candidate, supplied):
@@ -44,8 +48,14 @@ def authenticate(x_api_key: str | None = Header(default=None, alias="X-API-Key")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API key")
 
 
+AuthenticatedPrincipal = Annotated[Principal, Depends(authenticate)]
+
+
 def require_role(required: str):
-    def dependency(principal: Principal = __import__("fastapi").Depends(authenticate)) -> Principal:
+    if required not in ROLE_LEVEL:
+        raise ValueError(f"unknown role {required!r}")
+
+    def dependency(principal: AuthenticatedPrincipal) -> Principal:
         if ROLE_LEVEL[principal.role] < ROLE_LEVEL[required]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"{required} role required")
         return principal
