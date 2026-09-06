@@ -34,6 +34,7 @@ done
 python scripts/otel_e2e.py
 
 docker run --rm \
+  --entrypoint=/bin/promtool \
   -v "$PWD/observability/prometheus/rules:/rules:ro" \
   prom/prometheus:v${PROMETHEUS_VERSION:-3.14.0} \
-  promtool check rules /rules/*.yml
+  check rules /rules/*.yml
