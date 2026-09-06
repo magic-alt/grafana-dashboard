@@ -7,7 +7,9 @@ WITH symbols(symbol, base_price) AS (
         ('SPY', 650.0::numeric),
         ('QQQ', 590.0::numeric)
 ), sample_days(day_index) AS (
-    SELECT generate_series(0, 39)
+    -- The existing Grafana smoke gate expects >100 time points in a time-series
+    -- frame. Keep this deterministic but realistic enough to exercise the query.
+    SELECT generate_series(0, 119)
 )
 INSERT INTO stock_prices (
     symbol, price_time, open, high, low, close, adj_close, volume, fetched_at
