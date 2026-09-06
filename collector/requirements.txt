@@ -1,5 +1,5 @@
 yfinance>=0.2,<0.3
-pandas>=2.2,<3
+pandas>=3.0.5,<4
 psycopg[binary]>=3.2,<4
 tenacity>=8.2,<10
 requests>=2.34.2,<3
