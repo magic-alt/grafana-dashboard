@@ -13,7 +13,7 @@ class StockSettings:
     analysis_load_factor: int
 
     @classmethod
-    def from_env(cls) -> "StockSettings":
+    def from_env(cls) -> StockSettings:
         tickers = tuple(
             item.strip().upper()
             for item in os.getenv("TICKERS", "AAPL,MSFT,NVDA,TSLA,SPY,QQQ").split(",")
