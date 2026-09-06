@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -25,6 +25,12 @@ def _int(env: Mapping[str, str], key: str, default: int) -> int:
         raise ValueError(f"{key} must be an integer, got {raw!r}") from exc
 
 
+def _first_int(env: Mapping[str, str], primary: str, secondary: str, default: int) -> int:
+    if str(env.get(primary, "")).strip():
+        return _int(env, primary, default)
+    return _int(env, secondary, default)
+
+
 def env_bool(value: str | None, *, default: bool = False) -> bool:
     if value is None:
         return default
@@ -45,7 +51,7 @@ class DatabaseSettings:
         env = _source(environ)
         return cls(
             host=_text(env, "DB_HOST", _text(env, "POSTGRES_HOST", "postgres")),
-            port=_int(env, "DB_PORT", _int(env, "POSTGRES_PORT", 5432)),
+            port=_first_int(env, "DB_PORT", "POSTGRES_PORT", 5432),
             name=_text(env, "DB_NAME", _text(env, "POSTGRES_DB", "stockdash")),
             user=_text(env, "DB_USER", _text(env, "POSTGRES_USER", "stock")),
             password=str(env.get("DB_PASSWORD", env.get("POSTGRES_PASSWORD", ""))),
