@@ -4,7 +4,6 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -47,7 +46,7 @@ class DatabaseSettings:
     sslmode: str = "disable"
 
     @classmethod
-    def from_env(cls, environ: Mapping[str, str] | None = None) -> "DatabaseSettings":
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> DatabaseSettings:
         env = _source(environ)
         return cls(
             host=_text(env, "DB_HOST", _text(env, "POSTGRES_HOST", "postgres")),
@@ -101,7 +100,7 @@ class TelemetrySettings:
         cls,
         default_service_name: str,
         environ: Mapping[str, str] | None = None,
-    ) -> "TelemetrySettings":
+    ) -> TelemetrySettings:
         env = _source(environ)
         service_name = _text(env, "OTEL_SERVICE_NAME", default_service_name)
         otlp_endpoint = str(env.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")).strip()
