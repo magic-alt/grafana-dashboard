@@ -3,10 +3,9 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
+from obs_platform.config import DatabaseSettings
 from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import URL
-
-from obs_platform.config import DatabaseSettings
 
 config = context.config
 if config.config_file_name is not None:
@@ -30,7 +29,12 @@ def database_url() -> URL:
 
 
 def run_migrations_offline() -> None:
-    context.configure(url=database_url(), target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"})
+    context.configure(
+        url=database_url(),
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
     with context.begin_transaction():
         context.run_migrations()
 
