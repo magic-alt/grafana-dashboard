@@ -5,6 +5,7 @@ import os
 import threading
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Annotated
 
 import psycopg
 import uvicorn
@@ -22,14 +23,27 @@ ANALYSIS_LOAD_FACTOR = int(os.getenv("OBS_ANALYSIS_LOAD_FACTOR", "12"))
 PORT = int(os.getenv("OBS_CONTROL_PORT", "8080"))
 HOST = os.getenv("OBS_CONTROL_HOST", "0.0.0.0")
 
+ViewerPrincipal = Annotated[Principal, Depends(require_role("viewer"))]
+OperatorPrincipal = Annotated[Principal, Depends(require_role("operator"))]
+
 app = FastAPI(
     title="Magic Alt Observability Control Plane",
     version="1.0.0",
-    description="Authenticated operational API for reference workloads. Production identity can be enforced upstream by Entra/Application Gateway while preserving this API contract.",
+    description=(
+        "Authenticated operational API for reference workloads. Production identity can be enforced upstream "
+        "by Entra/Application Gateway while preserving this API contract."
+    ),
 )
 
 _JOB_LOCK = threading.Lock()
-_JOB_STATE = {"status": "idle", "started_at": None, "completed_at": None, "error": None, "run_id": None, "trace_id": None}
+_JOB_STATE = {
+    "status": "idle",
+    "started_at": None,
+    "completed_at": None,
+    "error": None,
+    "run_id": None,
+    "trace_id": None,
+}
 
 
 def _db_kwargs() -> dict[str, object]:
@@ -50,7 +64,10 @@ def _query(sql: str) -> list[dict[str, object]]:
     with psycopg.connect(**_db_kwargs()) as conn, conn.cursor() as cur:
         cur.execute(sql)
         columns = [item.name for item in cur.description]
-        return [{key: _json_value(value) for key, value in zip(columns, row)} for row in cur.fetchall()]
+        return [
+            {key: _json_value(value) for key, value in zip(columns, row, strict=True)}
+            for row in cur.fetchall()
+        ]
 
 
 def _current_job() -> dict[str, object]:
@@ -103,7 +120,7 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/", tags=["system"])
-def root(principal: Principal = Depends(require_role("viewer"))) -> dict[str, str]:
+def root(principal: ViewerPrincipal) -> dict[str, str]:
     return {
         "service": "observability-control-plane",
         "role": principal.role,
@@ -114,17 +131,17 @@ def root(principal: Principal = Depends(require_role("viewer"))) -> dict[str, st
 
 
 @app.get("/api/v1/jobs/current", tags=["runs"])
-def current_job(_: Principal = Depends(require_role("viewer"))) -> dict[str, object]:
+def current_job(_: ViewerPrincipal) -> dict[str, object]:
     return _current_job()
 
 
 @app.post("/api/v1/runs", status_code=status.HTTP_202_ACCEPTED, tags=["runs"])
-def start_run(_: Principal = Depends(require_role("operator"))) -> dict[str, object]:
+def start_run(_: OperatorPrincipal) -> dict[str, object]:
     return _start_refresh()
 
 
 @app.get("/api/v1/summary", tags=["runs"])
-def summary(_: Principal = Depends(require_role("viewer"))) -> dict[str, object]:
+def summary(_: ViewerPrincipal) -> dict[str, object]:
     percentiles = _query(
         """
         WITH runs AS (
