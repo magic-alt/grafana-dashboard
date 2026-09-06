@@ -12,7 +12,7 @@ authors = [{ name = "magic-alt" }]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.3,<9",
+  "pytest>=8.3,<10",
   "PyYAML>=6.0,<7",
   "ruff>=0.12,<1",
 ]
