@@ -1,3 +1,7 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 receivers:
   otlp:
     protocols:
@@ -7,19 +11,45 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  batch: {}
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 384
+    spike_limit_mib: 96
+  resource/defaults:
+    attributes:
+      - key: service.namespace
+        value: ${env:OBS_SERVICE_NAMESPACE:-magic-alt}
+        action: insert
+      - key: deployment.environment
+        value: ${env:DEPLOYMENT_ENVIRONMENT:-local}
+        action: insert
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
 
 exporters:
   otlp/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
-  debug:
-    verbosity: basic
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: observability_platform
 
 service:
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp/tempo, debug]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [otlphttp/loki]
