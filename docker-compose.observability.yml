@@ -1,7 +1,12 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   tempo:
-    image: grafana/tempo:${TEMPO_VERSION:-2.8.1}
-    container_name: stockdash-tempo
+    image: grafana/tempo:${TEMPO_VERSION:-2.10.7}
     restart: unless-stopped
     command: ["-config.file=/etc/tempo.yml"]
     ports:
@@ -9,18 +14,58 @@ services:
     volumes:
       - ./observability/tempo.yml:/etc/tempo.yml:ro
       - tempo-data:/var/tempo
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
 
   pyroscope:
-    image: grafana/pyroscope:${PYROSCOPE_VERSION:-1.14.0}
-    container_name: stockdash-pyroscope
+    image: grafana/pyroscope:${PYROSCOPE_VERSION:-2.2.0}
     restart: unless-stopped
     ports:
       - "${PYROSCOPE_PORT:-4040}:4040"
+    volumes:
+      - pyroscope-data:/var/lib/pyroscope
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  loki:
+    image: grafana/loki:${LOKI_VERSION:-3.7.7}
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+  prometheus:
+    image: prom/prometheus:v${PROMETHEUS_VERSION:-3.14.0}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
 
   alloy-profiler:
     profiles: ["lean-ebpf"]
-    image: grafana/alloy:${ALLOY_VERSION:-latest}
-    container_name: stockdash-alloy-profiler
+    image: grafana/alloy:${ALLOY_VERSION:-1.18.0}
     restart: unless-stopped
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     privileged: true
@@ -33,19 +78,31 @@ services:
     depends_on:
       pyroscope:
         condition: service_started
+    networks: [backend]
+    logging: *default-logging
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.130.1}
-    container_name: stockdash-otel-collector
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.160.0}
     restart: unless-stopped
     command: ["--config=/etc/otel-collector.yml"]
+    environment:
+      OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${OTEL_GRPC_PORT:-4317}:4317"
       - "${OTEL_HTTP_PORT:-4318}:4318"
+      - "${OTEL_HEALTH_PORT:-13133}:13133"
     volumes:
       - ./observability/otel-collector.yml:/etc/otel-collector.yml:ro
     depends_on:
-      - tempo
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    networks: [backend, frontend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
 
   collector:
     environment:
@@ -66,20 +123,23 @@ services:
         condition: service_started
       pyroscope:
         condition: service_started
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
 
   observability-case:
     profiles: ["observability-case"]
     build:
       context: ./collector
-    container_name: stockdash-observability-case
     restart: "no"
     command: ["python", "observability_case.py", "--mode", "live"]
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: stockdash
-      DB_USER: stock
-      DB_PASSWORD: stock
+      DB_NAME: ${POSTGRES_DB:-stockdash}
+      DB_USER: ${POSTGRES_USER:-stock}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
       YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
       YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
@@ -88,6 +148,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       PYROSCOPE_APPLICATION_NAME: stock.observability.case
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
+      OBS_PROJECT: stock-lab
       GRAFANA_URL: http://grafana:3000
       PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
       PUBLIC_TEMPO_URL: http://localhost:${TEMPO_PORT:-3200}
@@ -104,11 +167,13 @@ services:
         condition: service_started
       pyroscope:
         condition: service_started
+    networks: [backend]
+    logging: *default-logging
 
   observability-control:
+    profiles: ["lab-control"]
     build:
       context: ./collector
-    container_name: stockdash-observability-control
     restart: unless-stopped
     command: ["python", "observability_control.py"]
     ports:
@@ -116,9 +181,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: stockdash
-      DB_USER: stock
-      DB_PASSWORD: stock
+      DB_NAME: ${POSTGRES_DB:-stockdash}
+      DB_USER: ${POSTGRES_USER:-stock}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
       YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
       YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
@@ -127,6 +192,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       PYROSCOPE_APPLICATION_NAME: stock.observability.control
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
+      OBS_PROJECT: stock-lab
       GRAFANA_URL: http://grafana:3000
       PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
       PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
@@ -142,12 +210,14 @@ services:
         condition: service_started
       pyroscope:
         condition: service_started
+    networks: [backend, frontend]
+    logging: *default-logging
 
   lean-observability-control:
+    profiles: ["lean-lab"]
     build:
       context: ./collector
       dockerfile: Dockerfile.lean
-    container_name: stockdash-lean-observability-control
     restart: unless-stopped
     command: ["python", "lean_observability_control.py"]
     ports:
@@ -155,26 +225,29 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: stockdash
-      DB_USER: stock
-      DB_PASSWORD: stock
+      DB_NAME: ${POSTGRES_DB:-stockdash}
+      DB_USER: ${POSTGRES_USER:-stock}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       OBSERVABILITY_ENABLED: "true"
       OTEL_SERVICE_NAME: lean-backtest-control
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       PYROSCOPE_APPLICATION_NAME: lean.backtest.runner
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
+      OBS_PROJECT: lean-local-platform
       GRAFANA_URL: http://grafana:3000
       PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
       PUBLIC_PYROSCOPE_URL: http://localhost:${PYROSCOPE_PORT:-4040}
-      LEAN_PLATFORM_ROOT: ${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}
-      LEAN_DATA_DIR: ${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}
-      LEAN_RUNS_DIR: ${LEAN_RUNS_DIR:-/Users/kaermax/lean-platform/runs}
-      LEAN_DOCKER_IMAGE: ${LEAN_DOCKER_IMAGE:-quantconnect/lean:latest}
+      LEAN_PLATFORM_ROOT: /lean/platform
+      LEAN_DATA_DIR: /lean/data
+      LEAN_RUNS_DIR: /lean/platform/runs
+      LEAN_DOCKER_IMAGE: ${LEAN_DOCKER_IMAGE:-quantconnect/lean:18057}
       LEAN_OBS_PROFILE_LOAD_FACTOR: ${LEAN_OBS_PROFILE_LOAD_FACTOR:-8}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}:${LEAN_PLATFORM_ROOT:-/Users/kaermax/lean-platform}
-      - ${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}:${LEAN_DATA_DIR:-/Users/kaermax/Lean/Data}
+      - ${LEAN_PLATFORM_ROOT:-./.local/lean-platform}:/lean/platform
+      - ${LEAN_DATA_DIR:-./.local/lean-data}:/lean/data
       - ./test-results:/app/test-results
     depends_on:
       postgres:
@@ -185,6 +258,11 @@ services:
         condition: service_started
       pyroscope:
         condition: service_started
+    networks: [backend, frontend]
+    logging: *default-logging
 
 volumes:
   tempo-data:
+  pyroscope-data:
+  loki-data:
+  prometheus-data:

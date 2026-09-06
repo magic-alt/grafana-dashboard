@@ -1,55 +1,79 @@
-name: stock-grafana-dashboard
+name: observability-platform
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: stockdash-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: stockdash
-      POSTGRES_USER: stock
-      POSTGRES_PASSWORD: stock
+      POSTGRES_DB: ${POSTGRES_DB:-stockdash}
+      POSTGRES_USER: ${POSTGRES_USER:-stock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stock -d stockdash"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stock} -d ${POSTGRES_DB:-stockdash}"]
       interval: 5s
       timeout: 3s
       retries: 20
-    ports:
-      - "15432:5432"
+      start_period: 5s
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
 
   collector:
     build:
       context: ./collector
-    container_name: stockdash-collector
     restart: unless-stopped
+    init: true
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: stockdash
-      DB_USER: stock
-      DB_PASSWORD: stock
+      DB_NAME: ${POSTGRES_DB:-stockdash}
+      DB_USER: ${POSTGRES_USER:-stock}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DB_SSLMODE: disable
       TICKERS: ${TICKERS:-AAPL,MSFT,NVDA,TSLA,SPY,QQQ}
       YAHOO_PERIOD: ${YAHOO_PERIOD:-1y}
       YAHOO_INTERVAL: ${YAHOO_INTERVAL:-1d}
       REFRESH_SECONDS: ${REFRESH_SECONDS:-3600}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      OBS_SERVICE_NAMESPACE: ${OBS_SERVICE_NAMESPACE:-magic-alt}
+      OBS_PROJECT: ${OBS_PROJECT:-grafana-dashboard}
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
     depends_on:
       postgres:
         condition: service_healthy
+    networks: [backend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
 
   grafana:
     image: grafana/grafana-oss:13.0.2
-    container_name: stockdash-grafana
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS_ENABLED:-false}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: light
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/stock-dashboard.json
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-stockdash}
+      POSTGRES_USER: ${POSTGRES_USER:-stock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_SSLMODE: disable
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
     volumes:
@@ -59,6 +83,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks: [backend, frontend]
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  frontend:
+  backend:
 
 volumes:
   postgres-data:
