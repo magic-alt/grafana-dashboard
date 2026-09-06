@@ -44,8 +44,9 @@ jobs:
         run: python scripts/validate_repo.py
       - name: Lint production platform code
         run: >-
-          ruff check collector/obs_platform collector/control_plane collector/observability_support.py
-          collector/migrations tests scripts/validate_repo.py scripts/otel_e2e.py
+          ruff check collector/obs_platform collector/control_plane collector/stock
+          collector/observability_support.py collector/fetch_prices.py collector/migrations
+          tests scripts/validate_repo.py scripts/otel_e2e.py
       - name: Validate Compose rendering
         run: |
           docker compose config >/dev/null
