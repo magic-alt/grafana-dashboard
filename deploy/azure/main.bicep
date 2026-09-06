@@ -219,7 +219,6 @@ resource dataCollectionRule 'Microsoft.Insights/dataCollectionRules@2024-03-11' 
       logAnalytics: [
         {
           workspaceResourceId: logAnalytics.id
-          workspaceId: logAnalytics.properties.customerId
           name: 'log-analytics'
         }
       ]
@@ -249,7 +248,7 @@ resource dataCollectionRule 'Microsoft.Insights/dataCollectionRules@2024-03-11' 
 }
 
 resource workloadDcrPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(dataCollectionRule.id, workloadIdentity.properties.principalId, monitoringMetricsPublisherRoleId)
+  name: guid(dataCollectionRule.id, workloadIdentity.id, monitoringMetricsPublisherRoleId)
   scope: dataCollectionRule
   properties: {
     principalId: workloadIdentity.properties.principalId
@@ -277,7 +276,7 @@ resource managedGrafana 'Microsoft.Dashboard/grafana@2025-08-01' = {
 }
 
 resource grafanaMonitorReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(monitorWorkspace.id, managedGrafana.identity.principalId, monitoringReaderRoleId)
+  name: guid(monitorWorkspace.id, managedGrafana.id, monitoringReaderRoleId)
   scope: monitorWorkspace
   properties: {
     principalId: managedGrafana.identity.principalId
@@ -287,7 +286,7 @@ resource grafanaMonitorReader 'Microsoft.Authorization/roleAssignments@2022-04-0
 }
 
 resource grafanaLogsReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(logAnalytics.id, managedGrafana.identity.principalId, monitoringReaderRoleId)
+  name: guid(logAnalytics.id, managedGrafana.id, monitoringReaderRoleId)
   scope: logAnalytics
   properties: {
     principalId: managedGrafana.identity.principalId
@@ -355,11 +354,6 @@ resource grafanaPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' 
             'grafana'
           ]
           privateLinkServiceId: managedGrafana.id
-          privateLinkServiceConnectionState: {
-            status: 'Approved'
-            description: 'Provisioned by observability platform IaC'
-            actionsRequired: 'None'
-          }
         }
       }
     ]
@@ -403,7 +397,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
 }
 
 resource workloadKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, workloadIdentity.properties.principalId, keyVaultSecretsUserRoleId)
+  name: guid(keyVault.id, workloadIdentity.id, keyVaultSecretsUserRoleId)
   scope: keyVault
   properties: {
     principalId: workloadIdentity.properties.principalId
@@ -446,11 +440,6 @@ resource keyVaultPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01'
             'vault'
           ]
           privateLinkServiceId: keyVault.id
-          privateLinkServiceConnectionState: {
-            status: 'Approved'
-            description: 'Provisioned by observability platform IaC'
-            actionsRequired: 'None'
-          }
         }
       }
     ]
