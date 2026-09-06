@@ -10,6 +10,6 @@
     "test:lean-observability": "node scripts/browser_lean_observability_probe.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.53.0"
+    "playwright": "^1.62.1"
   }
 }
